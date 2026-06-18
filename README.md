@@ -321,7 +321,9 @@ garage-logbook/
 
 ## License
 
-This project is provided as-is for personal and internal use. See the repository for license details.
+Garage Logbook is free software, licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. You are free to use, study, share, and modify it under the terms of that license. Because the AGPL covers network use, if you run a modified version of Garage Logbook as a service accessible over a network, you must also make the corresponding source code available to its users.
+
+See the [LICENSE](LICENSE) file for the full text.
 
 ---
 
@@ -329,4 +331,4 @@ This project is provided as-is for personal and internal use. See the repository
 
 Garage Logbook is developed by [viibeware Corp.](https://viibeware.com)
 
-Current version: **0.1.9**
+Current version: **0.2.0**
