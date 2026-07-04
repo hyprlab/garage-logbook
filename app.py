@@ -1,5 +1,5 @@
 # Garage Logbook - self-hosted vehicle maintenance tracker
-# Copyright (C) 2026 viibeware Corp.
+# Copyright (C) 2026 Hyprlab
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -19,7 +19,7 @@ from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, g, Response, send_from_directory)
 
-APP_VERSION = '0.2.0'
+APP_VERSION = '0.2.1'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')

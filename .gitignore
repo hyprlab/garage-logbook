@@ -10,3 +10,4 @@ static/uploads/maintenance/*
 !static/uploads/cars/.gitkeep
 !static/uploads/maintenance/.gitkeep
 .env
+temp/

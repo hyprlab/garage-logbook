@@ -2,7 +2,7 @@
 
 Garage Logbook tracks your vehicle's service history from an elegantly simple, self-hosted web interface. It has image and document upload support (think pictures of repairs or receipt PDFs), role-based authentication, CSV import and export for existing maintenance records, and a performant dark-mode interface running in a Docker container for easy deployment.
 
-Built and maintained by [viibeware Corp.](https://viibeware.com)
+Built and maintained by [Hyprlab](https://hyprlab.co)
 
 ---
 
@@ -51,8 +51,8 @@ mkdir ~/garage-logbook && cd ~/garage-logbook
 ### 2. Download the compose file and environment template
 
 ```bash
-curl -O https://raw.githubusercontent.com/viibeware/garage-logbook/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/viibeware/garage-logbook/main/.env.example
+curl -O https://raw.githubusercontent.com/hyprlab/garage-logbook/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/hyprlab/garage-logbook/main/.env.example
 ```
 
 Or create the files manually:
@@ -63,7 +63,7 @@ Or create the files manually:
 ```yaml
 services:
   garage-logbook:
-    image: viibeware/garage-logbook:latest
+    image: hyprlab/garage-logbook:latest
     container_name: garage-logbook
     restart: unless-stopped
     ports:
@@ -263,13 +263,13 @@ docker compose up -d
 If you prefer to build the Docker image yourself rather than pulling from Docker Hub:
 
 ```bash
-git clone https://github.com/viibeware/garage-logbook.git
+git clone https://github.com/hyprlab/garage-logbook.git
 cd garage-logbook
 cp .env.example .env
 # Edit .env and set your SECRET_KEY
 ```
 
-Update `docker-compose.yml` to use `build: .` instead of `image: viibeware/garage-logbook:latest`, then:
+Update `docker-compose.yml` to use `build: .` instead of `image: hyprlab/garage-logbook:latest`, then:
 
 ```bash
 docker compose up -d --build
@@ -280,7 +280,7 @@ docker compose up -d --build
 Garage Logbook can also run directly on a Linux system with Python 3.10+:
 
 ```bash
-git clone https://github.com/viibeware/garage-logbook.git
+git clone https://github.com/hyprlab/garage-logbook.git
 cd garage-logbook
 python3 -m venv venv
 source venv/bin/activate
@@ -310,7 +310,7 @@ garage-logbook/
 │   ├── css/style.css         # Stylesheet (dark + light themes)
 │   ├── js/app.js             # Frontend JavaScript
 │   ├── garage-logbook_logo.svg
-│   ├── viibeware_logo.svg
+│   ├── hyprlab_logo.png
 │   └── favicon.png
 └── templates/
     ├── index.html            # Main application template
@@ -329,6 +329,6 @@ See the [LICENSE](LICENSE) file for the full text.
 
 ## About
 
-Garage Logbook is developed by [viibeware Corp.](https://viibeware.com)
+Garage Logbook is developed by [Hyprlab](https://hyprlab.co)
 
-Current version: **0.2.0**
+Current version: **0.2.1**
