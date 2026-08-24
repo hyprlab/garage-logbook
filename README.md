@@ -12,7 +12,8 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Vehicle Management** — Add, edit, and delete vehicles with year, make, model, VIN, purchase date, and photo
 - **Maintenance Records** — Log repairs, maintenance, upgrades, and inspections with date, mileage, vendor, cost, notes, and photo galleries
 - **PDF Receipts** — Upload PDF documents (receipts, invoices, estimates) to any maintenance record
-- **Dashboard** — At-a-glance stats for total vehicles, service records, and money spent with configurable time ranges
+- **Service Reminders** — Set a mileage interval per vehicle ("transmission fluid every 30,000 miles") and see what is due, due soon, or overdue. Reminders anchor to your service records, so logging the work rolls the next due mileage forward automatically
+- **Dashboard** — At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
 - **Search & Sort** — Live search across vehicles and maintenance records with multiple sort options
 - **CSV Import & Export** — Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
 - **Duplicate Records** — Quickly duplicate an existing maintenance record as a starting point
@@ -269,7 +270,16 @@ cp .env.example .env
 # Edit .env and set your SECRET_KEY
 ```
 
-Update `docker-compose.yml` to use `build: .` instead of `image: hyprlab/garage-logbook:latest`, then:
+Create a `docker-compose.override.yml` alongside it. Compose merges this file automatically, so you get a local build without editing the tracked `docker-compose.yml`:
+
+```yaml
+services:
+  garage-logbook:
+    build: .
+    image: garage-logbook-dev:latest
+```
+
+The separate `image:` tag keeps your local build from overwriting the published `hyprlab/garage-logbook:latest` in your image cache. This file is gitignored, so your local setup never ends up in a commit.
 
 ```bash
 docker compose up -d --build
@@ -301,7 +311,7 @@ garage-logbook/
 ├── app.py                    # Flask application
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile                # Container build instructions
-├── docker-compose.yml        # Compose configuration
+├── docker-compose.yml        # Compose configuration (pulls the published image)
 ├── .env.example              # Environment variable template
 ├── .github/
 │   └── workflows/
@@ -341,4 +351,4 @@ See the [LICENSE](LICENSE) file for the full text.
 
 Garage Logbook is developed by [Hyprlab](https://hyprlab.co)
 
-Current version: **0.2.2**
+Current version: **0.3.0**

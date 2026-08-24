@@ -1,4 +1,4 @@
-let currentCarId=null,lightboxImages=[],lightboxIndex=0,userSettings={dashboard_range:'all',show_vehicles:true,show_records:true,show_cost:true,theme:'dark'};
+let currentCarId=null,lightboxImages=[],lightboxIndex=0,userSettings={dashboard_range:'all',show_vehicles:true,show_records:true,show_cost:true,show_due:true,theme:'dark'};
 const PERM_LABELS={can_add_cars:'Add vehicles',can_edit_cars:'Edit vehicles',can_delete_cars:'Delete vehicles',can_add_records:'Add records',can_edit_records:'Edit records',can_delete_records:'Delete records',can_import:'Import CSV',can_export:'Export CSV'};
 
 document.addEventListener('DOMContentLoaded',()=>{
@@ -54,9 +54,11 @@ function switchSettingsTab(tab){
 // Auth
 async function doLogout(){await fetch('/api/auth/logout',{method:'POST'});window.location.href='/login'}
 async function changePassword(){
-    const c=document.getElementById('currentPw').value,n=document.getElementById('newPw').value;
-    if(!c||!n){toast('Fill both fields','error');return}
-    try{const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:c,new_password:n})});const d=await r.json();if(!r.ok)throw new Error(d.error);toast('Password updated','success');closeModal('changePwModal');document.getElementById('currentPw').value='';document.getElementById('newPw').value=''}catch(e){toast(e.message,'error')}
+    const c=document.getElementById('currentPw').value,n=document.getElementById('newPw').value,c2=document.getElementById('confirmPw').value;
+    if(!c||!n||!c2){toast('Fill all fields','error');return}
+    if(n!==c2){toast('New passwords do not match','error');return}
+    if(n.length<4){toast('Min 4 characters','error');return}
+    try{const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:c,new_password:n})});const d=await r.json();if(!r.ok)throw new Error(d.error);toast('Password updated','success');['currentPw','newPw','confirmPw'].forEach(id=>document.getElementById(id).value='')}catch(e){toast(e.message,'error')}
 }
 async function forceChangePassword(){
     const n=document.getElementById('forceNewPw').value,c=document.getElementById('forceConfirmPw').value;
@@ -73,10 +75,11 @@ function loadSettingsUI(){
     document.getElementById('settingShowVehicles').checked=userSettings.show_vehicles!==false;
     document.getElementById('settingShowRecords').checked=userSettings.show_records!==false;
     document.getElementById('settingShowCost').checked=userSettings.show_cost!==false;
+    document.getElementById('settingShowDue').checked=userSettings.show_due!==false;
     document.getElementById('settingThemeDark').checked=(userSettings.theme||'dark')==='dark';
 }
 const saveSettingsDebounced=debounce(async()=>{
-    userSettings={dashboard_range:document.getElementById('settingRange').value,show_vehicles:document.getElementById('settingShowVehicles').checked,show_records:document.getElementById('settingShowRecords').checked,show_cost:document.getElementById('settingShowCost').checked,theme:document.getElementById('settingThemeDark').checked?'dark':'light'};
+    userSettings={dashboard_range:document.getElementById('settingRange').value,show_vehicles:document.getElementById('settingShowVehicles').checked,show_records:document.getElementById('settingShowRecords').checked,show_cost:document.getElementById('settingShowCost').checked,show_due:document.getElementById('settingShowDue').checked,theme:document.getElementById('settingThemeDark').checked?'dark':'light'};
     applyTheme();
     try{await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(userSettings)});toast('Saved','success');loadDashboard()}catch(e){toast('Failed','error')}
 },500);
@@ -95,9 +98,11 @@ async function loadDashboard(){
         if(cards[0])cards[0].style.display=userSettings.show_vehicles!==false?'':'none';
         if(cards[1])cards[1].style.display=userSettings.show_records!==false?'':'none';
         if(cards[2])cards[2].style.display=userSettings.show_cost!==false?'':'none';
+        if(cards[3])cards[3].style.display=userSettings.show_due!==false?'':'none';
         document.getElementById('statCars').textContent=d.total_cars;
         document.getElementById('statMaintenance').textContent=d.total_maintenance;
         document.getElementById('statCost').textContent='$'+d.total_cost.toLocaleString('en-US',{minimumFractionDigits:2});
+        loadUpcoming();
         const c=document.getElementById('recentActivity');
         if(!d.recent_entries.length){c.innerHTML='<p class="empty-text">No records yet.</p>';return}
         c.innerHTML=d.recent_entries.map(e=>`
@@ -141,7 +146,7 @@ async function openEditCarModal(id){try{const r=await fetch('/api/cars/'+id);con
 async function submitEditCar(e){e.preventDefault();const id=document.getElementById('editCarId').value;try{const r=await fetch('/api/cars/'+id,{method:'PUT',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Updated','success');closeModal('editCarModal');loadCars();if(currentCarId==id)openCarDetail(parseInt(id))}catch(e){toast(e.message,'error')}}
 async function deleteCar(id,name){if(!confirm(`Delete "${name}"?`))return;try{await fetch('/api/cars/'+id,{method:'DELETE'});toast('Deleted','success');loadCars();loadDashboard();if(currentCarId==id)switchView('garage')}catch(e){toast('Failed','error')}}
 
-async function openCarDetail(carId){currentCarId=carId;try{const r=await fetch('/api/cars/'+carId);const car=await r.json();document.getElementById('carDetailTitle').textContent=`${car.year} ${car.make} ${car.model}`;renderCarHero(car);switchView('car-detail');loadMaintenance()}catch(e){toast('Failed','error')}}
+async function openCarDetail(carId){currentCarId=carId;try{const r=await fetch('/api/cars/'+carId);const car=await r.json();document.getElementById('carDetailTitle').textContent=`${car.year} ${car.make} ${car.model}`;renderCarHero(car);switchView('car-detail');loadMaintenance();loadReminders()}catch(e){toast('Failed','error')}}
 function renderCarHero(car){document.getElementById('carDetailHero').innerHTML=`${car.image?`<img src="/uploads/cars/${car.image}" alt="">`:'<div class="placeholder-img"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 17h14M5 17a2 2 0 01-2-2V7a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="16.5" cy="17" r="2.5"/></svg></div>'}<div class="detail-meta"><div class="detail-meta-row"><div class="detail-meta-item"><span class="label">Year</span><span class="value">${car.year}</span></div><div class="detail-meta-item"><span class="label">Make</span><span class="value">${esc(car.make)}</span></div><div class="detail-meta-item"><span class="label">Model</span><span class="value">${esc(car.model)}</span></div></div><div class="detail-meta-row">${car.vin?`<div class="detail-meta-item"><span class="label">VIN</span><span class="value mono">${esc(car.vin)}</span></div>`:''}${car.purchase_date?`<div class="detail-meta-item"><span class="label">Purchased</span><span class="value">${formatDate(car.purchase_date)}</span></div>`:''}</div></div>`}
 function exportCarCSV(){if(currentCarId)window.location.href='/api/cars/'+currentCarId+'/export'}
 function openImportForCar(){openModal('settingsModal');switchSettingsTab('import');setTimeout(()=>{document.getElementById('importCarSelect').value=currentCarId},200)}
@@ -255,3 +260,84 @@ function lightboxNext(){lightboxIndex=(lightboxIndex+1)%lightboxImages.length;do
 function toast(msg,type='success'){const c=document.getElementById('toastContainer'),el=document.createElement('div');el.className='toast '+type;el.textContent=msg;c.appendChild(el);setTimeout(()=>el.remove(),3500)}
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function formatDate(s){if(!s)return'—';const d=new Date(s+(s.includes('T')?'':'T00:00:00'));return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})}
+
+// ── Service Reminders ──────────────────────────────
+function reminderCard(r,showCar){
+    const n=v=>Number(v).toLocaleString();
+    const pct=(r.miles_remaining==null||!r.interval_miles)?0:Math.max(0,Math.min(100,Math.round((1-r.miles_remaining/r.interval_miles)*100)));
+    let big,lbl;
+    if(r.miles_remaining==null){big='—';lbl='no baseline'}
+    else if(r.miles_remaining<=0){big=n(Math.abs(r.miles_remaining));lbl='miles overdue'}
+    else{big=n(r.miles_remaining);lbl='miles to go'}
+    const sub=r.next_due_odometer!=null
+        ?`Every ${n(r.interval_miles)} mi · next at ${n(r.next_due_odometer)} mi`
+        :`Every ${n(r.interval_miles)} mi · add a service record or a last-done mileage`;
+    return `<div class="reminder-card ${r.status}">
+        <div class="reminder-main">
+            ${showCar&&r.car_name?`<div class="reminder-car">${esc(r.car_name)}</div>`:''}
+            <div class="reminder-title">${esc(r.title)}${r.status==='overdue'?'<span class="reminder-badge">Overdue</span>':''}</div>
+            <div class="reminder-sub">${sub}</div>
+            ${r.miles_remaining!=null?`<div class="reminder-bar"><span style="width:${pct}%"></span></div>`:''}
+        </div>
+        <div class="reminder-meta"><div class="reminder-remaining">${big}</div><div class="reminder-lbl">${lbl}</div></div>
+        ${showCar?'':`<div class="reminder-actions">
+            ${hasPerm('can_edit_records')?`<button class="btn btn-sm btn-ghost" title="Edit" onclick='openEditReminderModal(${JSON.stringify(r).replace(/'/g,"&#39;")})'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/></svg></button>`:''}
+            ${hasPerm('can_delete_records')?`<button class="btn btn-sm btn-ghost" title="Delete" onclick="deleteReminder(${r.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>`:''}
+        </div>`}
+    </div>`;
+}
+async function loadReminders(){
+    if(!currentCarId)return;
+    try{
+        const r=await fetch(`/api/cars/${currentCarId}/reminders`);const list=await r.json();
+        const el=document.getElementById('remindersList');
+        el.innerHTML=list.length?list.map(x=>reminderCard(x,false)).join(''):'<p class="empty-text">No reminders yet.</p>';
+    }catch(e){console.error(e)}
+}
+function openAddReminderModal(){document.getElementById('addReminderForm').reset();openModal('addReminderModal')}
+async function submitReminder(e){
+    e.preventDefault();if(!currentCarId)return;
+    const b=document.getElementById('addReminderBtn');b.disabled=true;b.textContent='Saving…';
+    try{
+        const body=Object.fromEntries(new FormData(e.target).entries());
+        const r=await fetch(`/api/cars/${currentCarId}/reminders`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}
+        toast('Reminder added','success');closeModal('addReminderModal');loadReminders()
+    }catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Save'}
+}
+function openEditReminderModal(r){
+    const f=document.getElementById('editReminderForm');f.reset();
+    document.getElementById('editReminderId').value=r.id;
+    f.title.value=r.title;f.interval_miles.value=r.interval_miles;
+    f.last_done_odometer.value=r.last_done_odometer==null?'':r.last_done_odometer;
+    f.notes.value=r.notes||'';
+    openModal('editReminderModal');
+}
+async function submitEditReminder(e){
+    e.preventDefault();
+    const id=document.getElementById('editReminderId').value;
+    try{
+        const body=Object.fromEntries(new FormData(e.target).entries());delete body.id;
+        const r=await fetch('/api/reminders/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}
+        toast('Reminder updated','success');closeModal('editReminderModal');loadReminders()
+    }catch(e){toast(e.message,'error')}
+}
+async function deleteReminder(id){
+    if(!confirm('Delete this reminder?'))return;
+    try{
+        const r=await fetch('/api/reminders/'+id,{method:'DELETE'});
+        if(!r.ok)throw new Error('Failed');
+        toast('Deleted','success');loadReminders()
+    }catch(e){toast('Failed','error')}
+}
+async function loadUpcoming(){
+    try{
+        const r=await fetch('/api/reminders/upcoming');const d=await r.json();
+        const due=(d.overdue||0)+(d.due_soon||0);
+        const s=document.getElementById('statDue');if(s)s.textContent=due;
+        const el=document.getElementById('upcomingList');if(!el)return;
+        const list=(d.reminders||[]).filter(x=>x.status!=='no_baseline').slice(0,8);
+        el.innerHTML=list.length?list.map(x=>reminderCard(x,true)).join(''):'<p class="empty-text">Nothing due. Add reminders from a vehicle page.</p>';
+    }catch(e){console.error(e)}
+}

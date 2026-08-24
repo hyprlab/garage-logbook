@@ -15,12 +15,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re
+try:
+    import fcntl
+except ImportError:  # non-POSIX; single-process only
+    fcntl = None
 from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, g, Response, send_from_directory,
                    has_request_context)
 
-APP_VERSION = '0.2.2'
+APP_VERSION = '0.3.0'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')
@@ -61,6 +65,24 @@ def get_db():
     return conn
 
 def init_db():
+    """Serialized across worker processes: gunicorn imports this module once per
+    worker, so without a lock all of them run the migrations concurrently and can
+    interleave the table-rebuild steps."""
+    lock_path = DATABASE + '.init.lock'
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
+    except Exception:
+        pass
+    if fcntl is None:
+        return _init_db()
+    with open(lock_path, 'w') as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            return _init_db()
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+def _init_db():
     conn = get_db()
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS users (
@@ -96,6 +118,14 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS service_reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            car_id INTEGER NOT NULL, title TEXT NOT NULL,
+            interval_miles INTEGER NOT NULL,
+            last_done_odometer INTEGER, notes TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
             settings TEXT NOT NULL DEFAULT '{}',
@@ -103,9 +133,12 @@ def init_db():
         );
     ''')
     if conn.execute('SELECT COUNT(*) as c FROM users').fetchone()['c'] == 0:
-        conn.execute('INSERT INTO users (username,password,display_name,role,permissions,must_change_password) VALUES (?,?,?,?,?,?)',
+        # OR IGNORE: gunicorn runs several workers, each importing this module.
+        # Without it the losers of the race crash on the UNIQUE username.
+        cur = conn.execute('INSERT OR IGNORE INTO users (username,password,display_name,role,permissions,must_change_password) VALUES (?,?,?,?,?,?)',
                      ('admin', hash_password('admin'), 'Administrator', 'admin', '{}', 1))
-        print("\n  Default admin: admin / admin — change immediately!\n")
+        if cur.rowcount:
+            print("\n  Default admin: admin / admin — change immediately!\n")
     conn.commit()
     # Migrations
     try:
@@ -203,6 +236,39 @@ def get_user_perms(user):
         return {k: perms.get(k, v) for k, v in DEFAULT_PERMS.items()}
     except:
         return dict(DEFAULT_PERMS)
+
+def reminder_status(conn, rem, current_odo=None):
+    """Expand a service_reminders row with its computed due state.
+
+    The anchor is the highest odometer among that car's service records whose
+    title matches the reminder's, so logging the service again rolls the next
+    due mileage forward on its own. `last_done_odometer` is the manual fallback
+    for reminders that have no matching record yet.
+    """
+    d = dict(rem)
+    cid = d['car_id']
+    if current_odo is None:
+        row = conn.execute('SELECT MAX(odometer) AS o FROM maintenance WHERE car_id=?', (cid,)).fetchone()
+        current_odo = row['o'] if row and row['o'] is not None else None
+    match = conn.execute(
+        "SELECT MAX(odometer) AS o FROM maintenance WHERE car_id=? AND odometer IS NOT NULL"
+        " AND lower(trim(title))=lower(trim(?))", (cid, d['title'])).fetchone()
+    anchor = match['o'] if match and match['o'] is not None else d.get('last_done_odometer')
+    d['current_odometer'] = current_odo
+    d['last_service_odometer'] = anchor
+    if anchor is None:
+        d['next_due_odometer'] = None; d['miles_remaining'] = None; d['status'] = 'no_baseline'
+        return d
+    next_due = int(anchor) + int(d['interval_miles'])
+    d['next_due_odometer'] = next_due
+    if current_odo is None:
+        d['miles_remaining'] = None; d['status'] = 'no_baseline'
+        return d
+    remaining = next_due - int(current_odo)
+    d['miles_remaining'] = remaining
+    soon = max(250, int(int(d['interval_miles']) * 0.05))
+    d['status'] = 'overdue' if remaining <= 0 else ('due_soon' if remaining <= soon else 'ok')
+    return d
 
 def can_access_car(conn, cid, user):
     """Check if user can access this car (owns it or is admin)."""
@@ -344,7 +410,7 @@ def get_settings():
     conn = get_db()
     row = conn.execute('SELECT settings FROM user_settings WHERE user_id=?',(g.user['id'],)).fetchone()
     conn.close()
-    defaults = {'dashboard_range':'all','show_vehicles':True,'show_records':True,'show_cost':True,'theme':'dark'}
+    defaults = {'dashboard_range':'all','show_vehicles':True,'show_records':True,'show_cost':True,'show_due':True,'theme':'dark'}
     if row:
         saved = json.loads(row['settings'])
         defaults.update(saved)
@@ -662,6 +728,112 @@ def delete_maintenance_image(iid):
     if os.path.exists(p): os.remove(p)
     conn.execute('DELETE FROM maintenance_images WHERE id=?',(iid,)); conn.commit(); conn.close()
     return jsonify({'success':True})
+
+# ── Service Reminders ──────────────────────────────────
+@app.route('/api/cars/<int:cid>/reminders', methods=['GET'])
+@login_required
+def get_reminders(cid):
+    conn = get_db()
+    car = can_access_car(conn, cid, g.user)
+    if not car: conn.close(); return jsonify({'error':'Not found'}), 404
+    rows = conn.execute('SELECT * FROM service_reminders WHERE car_id=? ORDER BY title', (cid,)).fetchall()
+    out = [reminder_status(conn, r) for r in rows]
+    conn.close()
+    # soonest first, with anything lacking a baseline last
+    out.sort(key=lambda r: (r['miles_remaining'] is None, r['miles_remaining']))
+    return jsonify(out)
+
+@app.route('/api/cars/<int:cid>/reminders', methods=['POST'])
+@perm_required('can_add_records')
+def add_reminder(cid):
+    conn = get_db()
+    car = can_access_car(conn, cid, g.user)
+    if not car: conn.close(); return jsonify({'error':'Not found'}), 404
+    d = request.get_json(silent=True) or request.form
+    t = (d.get('title') or '').strip()
+    iv = (str(d.get('interval_miles') or '')).strip()
+    ld = (str(d.get('last_done_odometer') or '')).strip()
+    n = (d.get('notes') or '').strip()
+    if not t or not iv: conn.close(); return jsonify({'error':'Title and interval required'}), 400
+    try:
+        iv = int(iv)
+        ld = int(ld) if ld else None
+    except ValueError:
+        conn.close(); return jsonify({'error':'Mileage values must be whole numbers'}), 400
+    if iv <= 0: conn.close(); return jsonify({'error':'Interval must be greater than zero'}), 400
+    if ld is not None and ld < 0: conn.close(); return jsonify({'error':'Last-done mileage cannot be negative'}), 400
+    cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_miles,last_done_odometer,notes) VALUES (?,?,?,?,?)',
+                       (cid, t, iv, ld, n or None))
+    conn.commit()
+    row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (cur.lastrowid,)).fetchone()
+    out = reminder_status(conn, row)
+    conn.close()
+    return jsonify(out), 201
+
+@app.route('/api/reminders/<int:rid>', methods=['PUT'])
+@perm_required('can_edit_records')
+def update_reminder(rid):
+    conn = get_db()
+    rem = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
+    if not rem: conn.close(); return jsonify({'error':'Not found'}), 404
+    if not can_access_car(conn, rem['car_id'], g.user): conn.close(); return jsonify({'error':'Not found'}), 404
+    d = request.get_json(silent=True) or request.form
+    t = (d.get('title') if d.get('title') is not None else rem['title']).strip()
+    iv = str(d.get('interval_miles') if d.get('interval_miles') not in (None,'') else rem['interval_miles']).strip()
+    raw_ld = d.get('last_done_odometer')
+    n = (d.get('notes') if d.get('notes') is not None else (rem['notes'] or '')).strip()
+    if not t or not iv: conn.close(); return jsonify({'error':'Title and interval required'}), 400
+    try:
+        iv = int(iv)
+        # an explicitly empty string clears the manual baseline
+        ld = rem['last_done_odometer'] if raw_ld is None else (int(raw_ld) if str(raw_ld).strip() else None)
+    except ValueError:
+        conn.close(); return jsonify({'error':'Mileage values must be whole numbers'}), 400
+    if iv <= 0: conn.close(); return jsonify({'error':'Interval must be greater than zero'}), 400
+    if ld is not None and ld < 0: conn.close(); return jsonify({'error':'Last-done mileage cannot be negative'}), 400
+    conn.execute('UPDATE service_reminders SET title=?,interval_miles=?,last_done_odometer=?,notes=? WHERE id=?',
+                 (t, iv, ld, n or None, rid))
+    conn.commit()
+    row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
+    out = reminder_status(conn, row)
+    conn.close()
+    return jsonify(out)
+
+@app.route('/api/reminders/<int:rid>', methods=['DELETE'])
+@perm_required('can_delete_records')
+def delete_reminder(rid):
+    conn = get_db()
+    rem = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
+    if not rem: conn.close(); return jsonify({'error':'Not found'}), 404
+    if not can_access_car(conn, rem['car_id'], g.user): conn.close(); return jsonify({'error':'Not found'}), 404
+    conn.execute('DELETE FROM service_reminders WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/reminders/upcoming')
+@login_required
+def upcoming_reminders():
+    """Every reminder across the vehicles this user can see, soonest first."""
+    conn = get_db()
+    if g.user['role'] == 'admin':
+        cars = conn.execute('SELECT * FROM cars').fetchall()
+    else:
+        cars = conn.execute('SELECT * FROM cars WHERE user_id=?', (g.user['id'],)).fetchall()
+    out = []
+    for car in cars:
+        odo = conn.execute('SELECT MAX(odometer) AS o FROM maintenance WHERE car_id=?', (car['id'],)).fetchone()
+        current = odo['o'] if odo and odo['o'] is not None else None
+        for r in conn.execute('SELECT * FROM service_reminders WHERE car_id=?', (car['id'],)).fetchall():
+            d = reminder_status(conn, r, current)
+            d['car_name'] = f"{car['year']} {car['make']} {car['model']}"
+            out.append(d)
+    conn.close()
+    out.sort(key=lambda r: (r['miles_remaining'] is None, r['miles_remaining']))
+    return jsonify({
+        'reminders': out,
+        'overdue': sum(1 for r in out if r['status'] == 'overdue'),
+        'due_soon': sum(1 for r in out if r['status'] == 'due_soon'),
+    })
 
 # ── CSV Export ─────────────────────────────────────────
 @app.route('/api/cars/<int:cid>/export')
