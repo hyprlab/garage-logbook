@@ -319,6 +319,16 @@ garage-logbook/
 
 ---
 
+## AI notice
+
+Garage Logbook is built by a human maintainer working with generative AI as a development tool:
+
+- **Code** — the large majority of the Python, JavaScript, and CSS in this repository was written with Anthropic's Claude (via Claude Code), working from the maintainer's direction. The maintainer decides what gets built, reviews the results, tests every release, and signs off on everything that ships.
+- **Text** — documentation, release notes, and in-app copy are largely AI-drafted and human-edited.
+- **The app itself contains no AI.** Garage Logbook has no AI features and makes no requests to AI services — your vehicle records stay in your own database. AI was used to *build* the app, not to run it.
+
+Bug reports and pull requests are welcome from humans and their AI tools alike; everything merged gets the same human review.
+
 ## License
 
 Garage Logbook is free software, licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. You are free to use, study, share, and modify it under the terms of that license. Because the AGPL covers network use, if you run a modified version of Garage Logbook as a service accessible over a network, you must also make the corresponding source code available to its users.
