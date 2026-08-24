@@ -17,9 +17,10 @@
 import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re
 from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
-                   redirect, url_for, session, g, Response, send_from_directory)
+                   redirect, url_for, session, g, Response, send_from_directory,
+                   has_request_context)
 
-APP_VERSION = '0.2.1'
+APP_VERSION = '0.2.2'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')
@@ -46,10 +47,17 @@ def verify_password(pw, stored):
     return hash_password(pw, stored.split('$',1)[0]) == stored
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # Track the connection so teardown_request can roll back and close it even if
+    # the view raises before reaching its own conn.close(). Without this, a failed
+    # write leaves an open transaction pinned by the logged traceback, and every
+    # later write fails with "database is locked" until the worker recycles.
+    if has_request_context():
+        if '_db_conns' not in g: g._db_conns = []
+        g._db_conns.append(conn)
     return conn
 
 def init_db():
@@ -107,7 +115,8 @@ def init_db():
         if 'permissions' not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '{}'")
         conn.commit()
-    except: pass
+    except Exception as e:
+        print(f"Migration users columns: {e}")
     # Migration: add user_id to cars if missing
     try:
         cols = [r['name'] for r in conn.execute("PRAGMA table_info(cars)").fetchall()]
@@ -122,14 +131,40 @@ def init_db():
     try:
         conn.execute("UPDATE users SET role='editor' WHERE role='viewer'")
         conn.commit()
-    except: pass
+    except Exception as e:
+        print(f"Migration viewer->editor: {e}")
     # Migration: add file_type to maintenance_images
     try:
         cols = [r['name'] for r in conn.execute("PRAGMA table_info(maintenance_images)").fetchall()]
         if 'file_type' not in cols:
             conn.execute("ALTER TABLE maintenance_images ADD COLUMN file_type TEXT NOT NULL DEFAULT 'image'")
             conn.commit()
-    except: pass
+    except Exception as e:
+        print(f"Migration file_type: {e}")
+    # Migration: repair maintenance_images FK left dangling by the pre-0.2.x
+    # Inspection-CHECK migration. That version renamed `maintenance` to a temp
+    # table without disabling foreign keys first; SQLite >=3.25 rewrites
+    # REFERENCES clauses in other tables to follow a rename, so this table ended
+    # up pointing at the temp table, which was then dropped. Result: every insert
+    # here fails with "no such table: main._maint_old".
+    try:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_images'").fetchone()
+        if row and ('_maint_old' in (row['sql'] or '') or '_m_old' in (row['sql'] or '')):
+            conn.executescript("""PRAGMA foreign_keys=OFF;
+                BEGIN;
+                CREATE TABLE maintenance_images_new (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                maintenance_id INTEGER NOT NULL,filename TEXT NOT NULL,original_name TEXT,
+                file_type TEXT NOT NULL DEFAULT 'image',created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE);
+                INSERT INTO maintenance_images_new (id,maintenance_id,filename,original_name,file_type,created_at)
+                SELECT id,maintenance_id,filename,original_name,file_type,created_at FROM maintenance_images;
+                DROP TABLE maintenance_images;
+                ALTER TABLE maintenance_images_new RENAME TO maintenance_images;
+                COMMIT;""")
+            conn.commit()
+            print("Migration: repaired dangling maintenance_images foreign key")
+    except Exception as e:
+        print(f"Migration maintenance_images FK: {e}")
     # Migration: add Inspection CHECK
     try:
         tbl = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance'").fetchone()
@@ -141,7 +176,8 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now')),FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE);
                 INSERT INTO maintenance SELECT * FROM _m_old;DROP TABLE _m_old;PRAGMA foreign_keys=ON;""")
             conn.commit()
-    except: pass
+    except Exception as e:
+        print(f"Migration Inspection CHECK: {e}")
     conn.close()
 
 def save_upload(file, subfolder):
@@ -186,6 +222,16 @@ def too_large(e):
 def server_error(e):
     if request.path.startswith('/api/'): return jsonify({'error':'Internal server error'}), 500
     return 'Internal server error', 500
+
+@app.teardown_request
+def close_db_conns(exc):
+    """Release any connection a view opened, rolling back if it failed."""
+    for conn in g.pop('_db_conns', []):
+        try:
+            if exc is not None: conn.rollback()
+            conn.close()
+        except Exception:
+            pass
 
 # ── Auth Middleware ─────────────────────────────────────
 @app.before_request

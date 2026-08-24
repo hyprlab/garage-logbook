@@ -150,6 +150,15 @@ const APP_VERSION="{{version}}";
             <div class="changelog">
                 <h4 class="changelog-title">Changelog</h4>
                 <div class="changelog-entry">
+                    <div class="changelog-version">0.2.2</div>
+                    <ul>
+                        <li>Fixed error when saving service records on installs upgraded from earlier versions</li>
+                        <li>Repaired maintenance record attachments link broken by an older database migration</li>
+                        <li>A failed save no longer locks the database for subsequent saves</li>
+                        <li>Database migration problems are now logged instead of silently ignored</li>
+                    </ul>
+                </div>
+                <div class="changelog-entry">
                     <div class="changelog-version">0.2.1</div>
                     <ul>
                         <li>Rebranded from viibeware Corp. to Hyprlab</li>

@@ -3,7 +3,7 @@ LABEL maintainer="Hyprlab"
 LABEL description="Garage Logbook - Car Maintenance Tracker"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
 LABEL org.opencontainers.image.source="https://github.com/hyprlab/garage-logbook"
-LABEL org.opencontainers.image.version="0.2.1"
+LABEL org.opencontainers.image.version="0.2.2"
 RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
