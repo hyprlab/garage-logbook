@@ -351,4 +351,4 @@ See the [LICENSE](LICENSE) file for the full text.
 
 Garage Logbook is developed by [Hyprlab](https://hyprlab.co)
 
-Current version: **0.3.0**
+Current version: **0.3.1**

@@ -4,7 +4,7 @@ const PERM_LABELS={can_add_cars:'Add vehicles',can_edit_cars:'Edit vehicles',can
 document.addEventListener('DOMContentLoaded',()=>{
     applyPermVisibility();populateUserMenu();
     document.getElementById('sidebarVersion').textContent='v'+APP_VERSION;
-    loadSettings().then(()=>{applyTheme();loadDashboard();loadCars()});
+    loadSettings().then(()=>{applyTheme();loadDashboard();loadCars();loadSidebarCars()});
     if(CURRENT_USER.must_change_password)openModal('forceChangePwModal');
 });
 
@@ -28,6 +28,7 @@ function switchView(v){
     document.getElementById('view-'+v).classList.add('active');
     const nb=document.querySelector(`.nav-btn[data-view="${v}"]`);if(nb)nb.classList.add('active');
     if(v==='dashboard')loadDashboard();if(v==='garage')loadCars();
+    if(v!=='car-detail')setActiveSidebarCar(null);
     document.getElementById('sidebar').classList.remove('open');
 }
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
@@ -137,16 +138,17 @@ async function loadCars(){
                 ${isAdmin&&car.owner_name?`<div class="car-card-owner">${esc(car.owner_name)}</div>`:''}
                 ${car.vin?`<div class="car-card-vin">${esc(car.vin)}</div>`:''}
                 <div class="car-card-stats"><span>${car.maintenance_count} records</span><span>$${Number(car.total_cost).toFixed(0)}</span>${car.latest_odometer?`<span>${Number(car.latest_odometer).toLocaleString()} mi</span>`:''}</div>
+                ${carCardReminders(car)}
             </div>
             ${hasPerm('can_edit_cars')||hasPerm('can_delete_cars')?`<div class="car-card-actions">${hasPerm('can_edit_cars')?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openEditCarModal(${car.id})">Edit</button>`:''}${hasPerm('can_delete_cars')?`<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteCar(${car.id},'${esc(car.year)} ${esc(car.make)} ${esc(car.model)}')">Delete</button>`:''}</div>`:''}
         </div>`).join('')}catch(e){console.error(e)}
 }
-async function submitCar(e){e.preventDefault();const b=document.getElementById('addCarBtn');b.disabled=true;b.textContent='Adding…';try{const r=await fetch('/api/cars',{method:'POST',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Added!','success');e.target.reset();resetPreview('carImagePreview');closeModal('addCarModal');loadCars();loadDashboard()}catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Add Vehicle'}}
+async function submitCar(e){e.preventDefault();const b=document.getElementById('addCarBtn');b.disabled=true;b.textContent='Adding…';try{const r=await fetch('/api/cars',{method:'POST',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Added!','success');e.target.reset();resetPreview('carImagePreview');closeModal('addCarModal');loadCars();loadSidebarCars();loadDashboard()}catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Add Vehicle'}}
 async function openEditCarModal(id){try{const r=await fetch('/api/cars/'+id);const c=await r.json();document.getElementById('editCarId').value=c.id;document.getElementById('editCarYear').value=c.year;document.getElementById('editCarMake').value=c.make;document.getElementById('editCarModel').value=c.model;document.getElementById('editCarVin').value=c.vin||'';document.getElementById('editCarPurchaseDate').value=c.purchase_date||'';const p=document.getElementById('editCarImagePreview');if(c.image){p.classList.add('has-preview');p.innerHTML=`<img src="/uploads/cars/${c.image}" alt="">`}else{p.classList.remove('has-preview');p.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Change photo</span>'}openModal('editCarModal')}catch(e){toast('Failed','error')}}
-async function submitEditCar(e){e.preventDefault();const id=document.getElementById('editCarId').value;try{const r=await fetch('/api/cars/'+id,{method:'PUT',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Updated','success');closeModal('editCarModal');loadCars();if(currentCarId==id)openCarDetail(parseInt(id))}catch(e){toast(e.message,'error')}}
-async function deleteCar(id,name){if(!confirm(`Delete "${name}"?`))return;try{await fetch('/api/cars/'+id,{method:'DELETE'});toast('Deleted','success');loadCars();loadDashboard();if(currentCarId==id)switchView('garage')}catch(e){toast('Failed','error')}}
+async function submitEditCar(e){e.preventDefault();const id=document.getElementById('editCarId').value;try{const r=await fetch('/api/cars/'+id,{method:'PUT',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Updated','success');closeModal('editCarModal');loadCars();loadSidebarCars();if(currentCarId==id)openCarDetail(parseInt(id))}catch(e){toast(e.message,'error')}}
+async function deleteCar(id,name){if(!confirm(`Delete "${name}"?`))return;try{await fetch('/api/cars/'+id,{method:'DELETE'});toast('Deleted','success');loadCars();loadSidebarCars();loadDashboard();if(currentCarId==id)switchView('garage')}catch(e){toast('Failed','error')}}
 
-async function openCarDetail(carId){currentCarId=carId;try{const r=await fetch('/api/cars/'+carId);const car=await r.json();document.getElementById('carDetailTitle').textContent=`${car.year} ${car.make} ${car.model}`;renderCarHero(car);switchView('car-detail');loadMaintenance();loadReminders()}catch(e){toast('Failed','error')}}
+async function openCarDetail(carId){currentCarId=carId;try{const r=await fetch('/api/cars/'+carId);const car=await r.json();document.getElementById('carDetailTitle').textContent=`${car.year} ${car.make} ${car.model}`;renderCarHero(car);switchView('car-detail');setActiveSidebarCar(carId);loadMaintenance();loadReminders()}catch(e){toast('Failed','error')}}
 function renderCarHero(car){document.getElementById('carDetailHero').innerHTML=`${car.image?`<img src="/uploads/cars/${car.image}" alt="">`:'<div class="placeholder-img"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 17h14M5 17a2 2 0 01-2-2V7a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="16.5" cy="17" r="2.5"/></svg></div>'}<div class="detail-meta"><div class="detail-meta-row"><div class="detail-meta-item"><span class="label">Year</span><span class="value">${car.year}</span></div><div class="detail-meta-item"><span class="label">Make</span><span class="value">${esc(car.make)}</span></div><div class="detail-meta-item"><span class="label">Model</span><span class="value">${esc(car.model)}</span></div></div><div class="detail-meta-row">${car.vin?`<div class="detail-meta-item"><span class="label">VIN</span><span class="value mono">${esc(car.vin)}</span></div>`:''}${car.purchase_date?`<div class="detail-meta-item"><span class="label">Purchased</span><span class="value">${formatDate(car.purchase_date)}</span></div>`:''}</div></div>`}
 function exportCarCSV(){if(currentCarId)window.location.href='/api/cars/'+currentCarId+'/export'}
 function openImportForCar(){openModal('settingsModal');switchSettingsTab('import');setTimeout(()=>{document.getElementById('importCarSelect').value=currentCarId},200)}
@@ -340,4 +342,35 @@ async function loadUpcoming(){
         const list=(d.reminders||[]).filter(x=>x.status!=='no_baseline').slice(0,8);
         el.innerHTML=list.length?list.map(x=>reminderCard(x,true)).join(''):'<p class="empty-text">Nothing due. Add reminders from a vehicle page.</p>';
     }catch(e){console.error(e)}
+}
+
+// ── Sidebar vehicle list ───────────────────────────
+async function loadSidebarCars(){
+    // deliberately not reusing loadCars(): that one honours the garage search
+    // box and early-returns on no matches, which would blank the sidebar.
+    try{
+        const r=await fetch('/api/cars');if(!r.ok)return;
+        const cars=await r.json();
+        const el=document.getElementById('sidebarCars');if(!el)return;
+        el.innerHTML=cars.map(c=>{
+            const name=`${c.year} ${c.make} ${c.model}`;
+            return `<button class="nav-car" data-car="${c.id}" onclick="openCarDetail(${c.id})" title="${esc(name)}"><span class="nav-car-name">${esc(name)}</span></button>`;
+        }).join('');
+        setActiveSidebarCar(currentCarId);
+    }catch(e){console.error(e)}
+}
+function setActiveSidebarCar(id){
+    document.querySelectorAll('.nav-car').forEach(b=>b.classList.toggle('active',id!=null&&String(b.dataset.car)===String(id)));
+}
+
+function carCardReminders(car){
+    const rs=car.reminders||[];
+    if(!rs.length)return '';
+    const more=(car.reminders_total||0)-rs.length;
+    const rows=rs.map(r=>{
+        const n=Math.abs(r.miles_remaining).toLocaleString();
+        const txt=r.miles_remaining<=0?`${n} mi overdue`:`${n} mi`;
+        return `<div class="car-card-rem ${r.status}"><span class="car-card-rem-name">${esc(r.title)}</span><span class="car-card-rem-val">${txt}</span></div>`;
+    }).join('');
+    return `<div class="car-card-rems"><div class="car-card-rems-hd">Upcoming Service</div>${rows}${more>0?`<div class="car-card-rem-more">+${more} more</div>`:''}</div>`;
 }

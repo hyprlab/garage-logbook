@@ -24,7 +24,7 @@ from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, g, Response, send_from_directory,
                    has_request_context)
 
-APP_VERSION = '0.3.0'
+APP_VERSION = '0.3.1'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')
@@ -527,6 +527,15 @@ def get_cars():
         c = dict(car)
         s = conn.execute("SELECT COUNT(*) as count, COALESCE(SUM(cost),0) as total_cost, MAX(odometer) as max_odo FROM maintenance WHERE car_id=?",(c['id'],)).fetchone()
         c['maintenance_count']=s['count']; c['total_cost']=s['total_cost']; c['latest_odometer']=s['max_odo']
+        # Upcoming service reminders for the card: soonest first, skipping any
+        # that have no baseline to count down from.
+        rems = [reminder_status(conn, r, s['max_odo'])
+                for r in conn.execute('SELECT * FROM service_reminders WHERE car_id=?', (c['id'],)).fetchall()]
+        rems = [r for r in rems if r['miles_remaining'] is not None]
+        rems.sort(key=lambda r: r['miles_remaining'])
+        c['reminders'] = rems[:3]
+        c['reminders_total'] = len(rems)
+        c['reminders_due'] = sum(1 for r in rems if r['status'] in ('overdue','due_soon'))
         result.append(c)
     conn.close()
     return jsonify(result)
