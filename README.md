@@ -12,7 +12,7 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Vehicle Management** — Add, edit, and delete vehicles with year, make, model, VIN, purchase date, and photo
 - **Maintenance Records** — Log repairs, maintenance, upgrades, and inspections with date, mileage, vendor, cost, notes, and photo galleries
 - **PDF Receipts** — Upload PDF documents (receipts, invoices, estimates) to any maintenance record
-- **Service Reminders** — Set a mileage interval per vehicle ("transmission fluid every 30,000 miles") and see what is due, due soon, or overdue. Reminders anchor to your service records, so logging the work rolls the next due mileage forward automatically
+- **Service Reminders** — Set an interval per vehicle and see what is due, due soon, or overdue. A toggle picks what each counter counts down: mileage ("transmission fluid every 30,000 miles") or time ("brake fluid every 24 months"). Reminders anchor to your service records, so logging the work rolls the next due point forward automatically, and when adding a record you can tick which counters to restart from its mileage or date
 - **Dashboard** — At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
 - **Search & Sort** — Live search across vehicles and maintenance records with multiple sort options
 - **CSV Import & Export** — Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
@@ -351,4 +351,4 @@ See the [LICENSE](LICENSE) file for the full text.
 
 Garage Logbook is developed by [Hyprlab](https://hyprlab.co)
 
-Current version: **0.3.1**
+Current version: **0.3.2**

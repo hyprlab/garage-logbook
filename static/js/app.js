@@ -170,9 +170,9 @@ function openMaintDetail(e){
     openModal('viewMaintModal');
 }
 
-function openAddMaintenanceModal(){document.getElementById('addMaintForm').reset();document.getElementById('galleryThumbs').innerHTML='';document.getElementById('addDocList').innerHTML='';resetPreview('maintGalleryPreview');document.querySelector('#addMaintForm [name="service_date"]').valueAsDate=new Date();openModal('addMaintModal')}
+function openAddMaintenanceModal(){document.getElementById('addMaintForm').reset();document.getElementById('galleryThumbs').innerHTML='';document.getElementById('addDocList').innerHTML='';resetPreview('maintGalleryPreview');document.querySelector('#addMaintForm [name="service_date"]').valueAsDate=new Date();loadMaintResetOptions();openModal('addMaintModal')}
 
-async function submitMaintenance(e){e.preventDefault();if(!currentCarId)return;const b=document.getElementById('addMaintBtn');b.disabled=true;b.textContent='Saving…';try{const r=await fetch('/api/cars/'+currentCarId+'/maintenance',{method:'POST',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Saved!','success');closeModal('addMaintModal');loadMaintenance();loadDashboard()}catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Save'}}
+async function submitMaintenance(e){e.preventDefault();if(!currentCarId)return;const b=document.getElementById('addMaintBtn');b.disabled=true;b.textContent='Saving…';try{const r=await fetch('/api/cars/'+currentCarId+'/maintenance',{method:'POST',body:new FormData(e.target)});if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}toast('Saved!','success');closeModal('addMaintModal');loadMaintenance();loadReminders();loadDashboard()}catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Save'}}
 
 async function openEditMaintModal(id){try{const r=await fetch('/api/cars/'+currentCarId+'/maintenance');const entries=await r.json();const e=entries.find(x=>x.id===id);if(!e)return toast('Not found','error');document.getElementById('editMaintId').value=e.id;document.getElementById('editMaintTitle').value=e.title;document.getElementById('editMaintDate').value=e.service_date;document.getElementById('editMaintOdo').value=e.odometer||'';document.getElementById('editMaintVendor').value=e.parts_vendor||'';document.getElementById('editMaintCost').value=e.cost||'';document.getElementById('editMaintNotes').value=e.notes||'';if(e.maintenance_type==='Maintenance')document.getElementById('editMaintTypeMaint').checked=true;else if(e.maintenance_type==='Repair')document.getElementById('editMaintTypeRepair').checked=true;else if(e.maintenance_type==='Upgrade')document.getElementById('editMaintTypeUpgrade').checked=true;else if(e.maintenance_type==='Inspection')document.getElementById('editMaintTypeInspection').checked=true;openModal('editMaintModal')}catch(e){toast('Failed','error')}}
 
@@ -264,22 +264,47 @@ function esc(s){if(!s)return'';const d=document.createElement('div');d.textConte
 function formatDate(s){if(!s)return'—';const d=new Date(s+(s.includes('T')?'':'T00:00:00'));return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})}
 
 // ── Service Reminders ──────────────────────────────
-function reminderCard(r,showCar){
+const MONTH_DAYS=30.44;
+// Renders the countdown for either interval mode; the server hands us
+// miles_remaining or days_remaining depending on interval_type.
+function reminderCountdown(r){
     const n=v=>Number(v).toLocaleString();
-    const pct=(r.miles_remaining==null||!r.interval_miles)?0:Math.max(0,Math.min(100,Math.round((1-r.miles_remaining/r.interval_miles)*100)));
-    let big,lbl;
-    if(r.miles_remaining==null){big='—';lbl='no baseline'}
-    else if(r.miles_remaining<=0){big=n(Math.abs(r.miles_remaining));lbl='miles overdue'}
-    else{big=n(r.miles_remaining);lbl='miles to go'}
-    const sub=r.next_due_odometer!=null
-        ?`Every ${n(r.interval_miles)} mi · next at ${n(r.next_due_odometer)} mi`
-        :`Every ${n(r.interval_miles)} mi · add a service record or a last-done mileage`;
+    if(r.interval_type==='time'){
+        const rem=r.days_remaining;
+        if(rem==null)return{big:'\u2014',lbl:'no baseline'};
+        const a=Math.abs(rem);
+        if(rem<=0)return{big:n(a),lbl:a===1?'day overdue':'days overdue'};
+        if(a<60)return{big:n(a),lbl:a===1?'day to go':'days to go'};
+        const mo=Math.round(a/MONTH_DAYS);
+        return{big:n(mo),lbl:mo===1?'month to go':'months to go'};
+    }
+    const rem=r.miles_remaining;
+    if(rem==null)return{big:'\u2014',lbl:'no baseline'};
+    if(rem<=0)return{big:n(Math.abs(rem)),lbl:'miles overdue'};
+    return{big:n(rem),lbl:'miles to go'};
+}
+function reminderSub(r){
+    const n=v=>Number(v).toLocaleString();
+    if(r.interval_type==='time'){
+        const mo=Number(r.interval_months)||0;
+        const every=`Every ${n(mo)} ${mo===1?'month':'months'}`;
+        return r.next_due_date?`${every} \u00b7 next on ${formatDate(r.next_due_date)}`
+                              :`${every} \u00b7 add a service record or a last-done date`;
+    }
+    const every=`Every ${n(r.interval_miles)} mi`;
+    return r.next_due_odometer!=null?`${every} \u00b7 next at ${n(r.next_due_odometer)} mi`
+                                    :`${every} \u00b7 add a service record or a last-done mileage`;
+}
+function reminderCard(r,showCar){
+    const f=r.remaining_fraction;
+    const pct=f==null?0:Math.max(0,Math.min(100,Math.round((1-f)*100)));
+    const {big,lbl}=reminderCountdown(r);
     return `<div class="reminder-card ${r.status}">
         <div class="reminder-main">
             ${showCar&&r.car_name?`<div class="reminder-car">${esc(r.car_name)}</div>`:''}
             <div class="reminder-title">${esc(r.title)}${r.status==='overdue'?'<span class="reminder-badge">Overdue</span>':''}</div>
-            <div class="reminder-sub">${sub}</div>
-            ${r.miles_remaining!=null?`<div class="reminder-bar"><span style="width:${pct}%"></span></div>`:''}
+            <div class="reminder-sub">${reminderSub(r)}</div>
+            ${f!=null?`<div class="reminder-bar"><span style="width:${pct}%"></span></div>`:''}
         </div>
         <div class="reminder-meta"><div class="reminder-remaining">${big}</div><div class="reminder-lbl">${lbl}</div></div>
         ${showCar?'':`<div class="reminder-actions">
@@ -296,13 +321,35 @@ async function loadReminders(){
         el.innerHTML=list.length?list.map(x=>reminderCard(x,false)).join(''):'<p class="empty-text">No reminders yet.</p>';
     }catch(e){console.error(e)}
 }
-function openAddReminderModal(){document.getElementById('addReminderForm').reset();openModal('addReminderModal')}
+// Flips a reminder form between the two interval modes. Fields for the
+// inactive mode are disabled so they neither block validation while hidden nor
+// get posted -- on an edit that leaves the stored values untouched.
+function setReminderMode(prefix,isTime){
+    const f=document.getElementById(prefix+'ReminderForm');
+    f.querySelectorAll('[data-mode]').forEach(g=>{
+        const on=(g.dataset.mode==='time')===isTime;
+        g.classList.toggle('hidden',!on);
+        g.querySelectorAll('input').forEach(i=>{i.disabled=!on});
+    });
+    f.querySelectorAll('[data-mode-lbl]').forEach(l=>
+        l.classList.toggle('active',(l.dataset.modeLbl==='time')===isTime));
+}
+function reminderBody(form){
+    const b=Object.fromEntries(new FormData(form).entries());
+    delete b.id;delete b.interval_type_time;
+    b.interval_type=form.interval_type_time.checked?'time':'miles';
+    return b;
+}
+function openAddReminderModal(){
+    document.getElementById('addReminderForm').reset();
+    setReminderMode('add',false);
+    openModal('addReminderModal');
+}
 async function submitReminder(e){
     e.preventDefault();if(!currentCarId)return;
-    const b=document.getElementById('addReminderBtn');b.disabled=true;b.textContent='Saving…';
+    const b=document.getElementById('addReminderBtn');b.disabled=true;b.textContent='Saving\u2026';
     try{
-        const body=Object.fromEntries(new FormData(e.target).entries());
-        const r=await fetch(`/api/cars/${currentCarId}/reminders`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const r=await fetch(`/api/cars/${currentCarId}/reminders`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(reminderBody(e.target))});
         if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}
         toast('Reminder added','success');closeModal('addReminderModal');loadReminders()
     }catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent='Save'}
@@ -310,17 +357,21 @@ async function submitReminder(e){
 function openEditReminderModal(r){
     const f=document.getElementById('editReminderForm');f.reset();
     document.getElementById('editReminderId').value=r.id;
-    f.title.value=r.title;f.interval_miles.value=r.interval_miles;
+    f.title.value=r.title;
+    f.interval_miles.value=r.interval_miles||'';
+    f.interval_months.value=r.interval_months||'';
     f.last_done_odometer.value=r.last_done_odometer==null?'':r.last_done_odometer;
+    f.last_done_date.value=r.last_done_date||'';
     f.notes.value=r.notes||'';
+    f.interval_type_time.checked=r.interval_type==='time';
+    setReminderMode('edit',f.interval_type_time.checked);
     openModal('editReminderModal');
 }
 async function submitEditReminder(e){
     e.preventDefault();
     const id=document.getElementById('editReminderId').value;
     try{
-        const body=Object.fromEntries(new FormData(e.target).entries());delete body.id;
-        const r=await fetch('/api/reminders/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const r=await fetch('/api/reminders/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(reminderBody(e.target))});
         if(!r.ok){let m='Failed';try{m=(await r.json()).error}catch(x){}throw new Error(m)}
         toast('Reminder updated','success');closeModal('editReminderModal');loadReminders()
     }catch(e){toast(e.message,'error')}
@@ -332,6 +383,42 @@ async function deleteReminder(id){
         if(!r.ok)throw new Error('Failed');
         toast('Deleted','success');loadReminders()
     }catch(e){toast('Failed','error')}
+}
+// ── Counter resets while logging a record ──────────
+// The Add Record modal lists this car's counters so the user can restart any
+// of them from the record being logged, rather than relying on the title match.
+let maintResetReminders=[];
+async function loadMaintResetOptions(){
+    maintResetReminders=[];
+    const block=document.getElementById('maintResetBlock'),list=document.getElementById('maintResetList');
+    if(!block)return;
+    block.classList.add('hidden');list.innerHTML='';
+    if(!currentCarId)return;
+    try{
+        const r=await fetch(`/api/cars/${currentCarId}/reminders`);if(!r.ok)return;
+        maintResetReminders=await r.json();
+    }catch(e){return}
+    if(!maintResetReminders.length)return;
+    block.classList.remove('hidden');
+    renderMaintResetOptions();
+}
+function renderMaintResetOptions(){
+    const list=document.getElementById('maintResetList');
+    if(!list||!maintResetReminders.length)return;
+    const f=document.getElementById('addMaintForm');
+    const odo=(f.odometer.value||'').trim(),sd=f.service_date.value;
+    // keep whatever is already ticked as the odometer/date are edited
+    const ticked=new Set([...list.querySelectorAll('input:checked')].map(i=>i.value));
+    list.innerHTML=maintResetReminders.map(r=>{
+        const time=r.interval_type==='time',val=time?sd:odo;
+        const to=val?(time?`\u2192 ${formatDate(val)}`:`\u2192 ${Number(val).toLocaleString()} mi`)
+                    :(time?'set a service date first':'enter an odometer first');
+        return `<label class="reset-row${val?'':' disabled'}">
+            <input type="checkbox" name="reset_reminders" value="${r.id}"${val?'':' disabled'}${val&&ticked.has(String(r.id))?' checked':''}>
+            <span class="reset-name">${esc(r.title)}</span>
+            <span class="reset-to">${to}</span>
+        </label>`;
+    }).join('');
 }
 async function loadUpcoming(){
     try{
@@ -368,8 +455,14 @@ function carCardReminders(car){
     if(!rs.length)return '';
     const more=(car.reminders_total||0)-rs.length;
     const rows=rs.map(r=>{
-        const n=Math.abs(r.miles_remaining).toLocaleString();
-        const txt=r.miles_remaining<=0?`${n} mi overdue`:`${n} mi`;
+        let txt;
+        if(r.interval_type==='time'){
+            const a=Math.abs(r.days_remaining);
+            txt=(a<60?`${a.toLocaleString()} ${a===1?'day':'days'}`:`${Math.round(a/MONTH_DAYS)} mo`)+(r.days_remaining<=0?' overdue':'');
+        }else{
+            const a=Math.abs(r.miles_remaining);
+            txt=`${a.toLocaleString()} mi`+(r.miles_remaining<=0?' overdue':'');
+        }
         return `<div class="car-card-rem ${r.status}"><span class="car-card-rem-name">${esc(r.title)}</span><span class="car-card-rem-val">${txt}</span></div>`;
     }).join('');
     return `<div class="car-card-rems"><div class="car-card-rems-hd">Upcoming Service</div>${rows}${more>0?`<div class="car-card-rem-more">+${more} more</div>`:''}</div>`;

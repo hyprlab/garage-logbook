@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re
+import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar
+from datetime import date
 try:
     import fcntl
 except ImportError:  # non-POSIX; single-process only
@@ -24,7 +25,7 @@ from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, g, Response, send_from_directory,
                    has_request_context)
 
-APP_VERSION = '0.3.1'
+APP_VERSION = '0.3.2'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')
@@ -121,8 +122,10 @@ def _init_db():
         CREATE TABLE IF NOT EXISTS service_reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             car_id INTEGER NOT NULL, title TEXT NOT NULL,
-            interval_miles INTEGER NOT NULL,
-            last_done_odometer INTEGER, notes TEXT,
+            interval_type TEXT NOT NULL DEFAULT 'miles',
+            interval_miles INTEGER NOT NULL DEFAULT 0,
+            interval_months INTEGER,
+            last_done_odometer INTEGER, last_done_date TEXT, notes TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE
         );
@@ -211,6 +214,19 @@ def _init_db():
             conn.commit()
     except Exception as e:
         print(f"Migration Inspection CHECK: {e}")
+    # Migration: reminders gained a time-based mode, so interval_miles is no
+    # longer the only interval. Pre-0.3.2 rows are all mileage-based.
+    try:
+        cols = [r['name'] for r in conn.execute("PRAGMA table_info(service_reminders)").fetchall()]
+        if 'interval_type' not in cols:
+            conn.execute("ALTER TABLE service_reminders ADD COLUMN interval_type TEXT NOT NULL DEFAULT 'miles'")
+        if 'interval_months' not in cols:
+            conn.execute("ALTER TABLE service_reminders ADD COLUMN interval_months INTEGER")
+        if 'last_done_date' not in cols:
+            conn.execute("ALTER TABLE service_reminders ADD COLUMN last_done_date TEXT")
+        conn.commit()
+    except Exception as e:
+        print(f"Migration reminder interval columns: {e}")
     conn.close()
 
 def save_upload(file, subfolder):
@@ -237,38 +253,154 @@ def get_user_perms(user):
     except:
         return dict(DEFAULT_PERMS)
 
-def reminder_status(conn, rem, current_odo=None):
+MONTH_DAYS = 30.44  # average calendar month, for months-to-days comparisons
+
+def _rem_date(v):
+    """Parse a stored YYYY-MM-DD date; None for anything unusable."""
+    if not v: return None
+    try:
+        return date.fromisoformat(str(v).strip()[:10])
+    except (ValueError, TypeError):
+        return None
+
+def _add_months(d, months):
+    """`d` plus N calendar months, clamped to the last day of the target month."""
+    m = d.month - 1 + int(months)
+    y, m = d.year + m // 12, m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+def reminder_status(conn, rem, current_odo=None, today=None):
     """Expand a service_reminders row with its computed due state.
 
-    The anchor is the highest odometer among that car's service records whose
-    title matches the reminder's, so logging the service again rolls the next
-    due mileage forward on its own. `last_done_odometer` is the manual fallback
-    for reminders that have no matching record yet.
+    A reminder counts down either mileage or calendar time, per `interval_type`.
+    Either way the anchor is the most recent service record whose title matches
+    the reminder's, so logging the service again rolls the next due point
+    forward on its own. `last_done_odometer` / `last_done_date` hold the manual
+    mark -- set by hand, or by ticking the counter while logging a record -- and
+    the anchor is whichever of the two is further along, so marking a counter
+    reset always takes effect.
+
+    `remaining_fraction` is how much of the interval is left, and is the one
+    field comparable across both modes -- use it to sort mixed lists.
     """
     d = dict(rem)
     cid = d['car_id']
+    d['interval_type'] = itype = 'time' if (d.get('interval_type') or 'miles') == 'time' else 'miles'
+    d.setdefault('interval_months', None)
+    d.setdefault('last_done_date', None)
+    d.update(current_odometer=None, last_service_odometer=None, next_due_odometer=None,
+             miles_remaining=None, last_service_date=None, next_due_date=None,
+             days_remaining=None, remaining_fraction=None)
+
+    if itype == 'time':
+        match = conn.execute(
+            "SELECT MAX(service_date) AS s FROM maintenance WHERE car_id=?"
+            " AND lower(trim(title))=lower(trim(?))", (cid, d['title'])).fetchone()
+        anchor = max([x for x in (_rem_date(match['s'] if match else None),
+                                   _rem_date(d.get('last_done_date'))) if x], default=None)
+        interval = int(d.get('interval_months') or 0)
+        d['last_service_date'] = anchor.isoformat() if anchor else None
+        if anchor is None or interval <= 0:
+            d['status'] = 'no_baseline'
+            return d
+        due = _add_months(anchor, interval)
+        d['next_due_date'] = due.isoformat()
+        remaining = (due - (today or date.today())).days
+        d['days_remaining'] = remaining
+        d['remaining_fraction'] = remaining / (interval * MONTH_DAYS)
+        soon = max(14, int(interval * MONTH_DAYS * 0.05))
+        d['status'] = 'overdue' if remaining <= 0 else ('due_soon' if remaining <= soon else 'ok')
+        return d
+
     if current_odo is None:
         row = conn.execute('SELECT MAX(odometer) AS o FROM maintenance WHERE car_id=?', (cid,)).fetchone()
         current_odo = row['o'] if row and row['o'] is not None else None
     match = conn.execute(
         "SELECT MAX(odometer) AS o FROM maintenance WHERE car_id=? AND odometer IS NOT NULL"
         " AND lower(trim(title))=lower(trim(?))", (cid, d['title'])).fetchone()
-    anchor = match['o'] if match and match['o'] is not None else d.get('last_done_odometer')
+    anchor = max([int(x) for x in (match['o'] if match else None, d.get('last_done_odometer'))
+                   if x is not None], default=None)
+    interval = int(d.get('interval_miles') or 0)
     d['current_odometer'] = current_odo
     d['last_service_odometer'] = anchor
-    if anchor is None:
-        d['next_due_odometer'] = None; d['miles_remaining'] = None; d['status'] = 'no_baseline'
+    if anchor is None or interval <= 0:
+        d['status'] = 'no_baseline'
         return d
-    next_due = int(anchor) + int(d['interval_miles'])
+    next_due = int(anchor) + interval
     d['next_due_odometer'] = next_due
     if current_odo is None:
-        d['miles_remaining'] = None; d['status'] = 'no_baseline'
+        d['status'] = 'no_baseline'
         return d
     remaining = next_due - int(current_odo)
     d['miles_remaining'] = remaining
-    soon = max(250, int(int(d['interval_miles']) * 0.05))
+    d['remaining_fraction'] = remaining / interval
+    soon = max(250, int(interval * 0.05))
     d['status'] = 'overdue' if remaining <= 0 else ('due_soon' if remaining <= soon else 'ok')
     return d
+
+def reset_reminder_baselines(conn, cid, ids, odo, service_date):
+    """Restart the named counters from this service record: mileage counters
+    from its odometer, time counters from its date. Ids that aren't this car's
+    are ignored, as is a mileage counter on a record with no odometer."""
+    done = []
+    for raw in ids:
+        try: rid = int(str(raw).strip())
+        except (TypeError, ValueError): continue
+        rem = conn.execute('SELECT * FROM service_reminders WHERE id=? AND car_id=?', (rid, cid)).fetchone()
+        if not rem: continue
+        if (rem['interval_type'] or 'miles') == 'time':
+            if not _rem_date(service_date): continue
+            conn.execute('UPDATE service_reminders SET last_done_date=? WHERE id=?', (service_date, rid))
+        else:
+            if odo is None: continue
+            conn.execute('UPDATE service_reminders SET last_done_odometer=? WHERE id=?', (int(odo), rid))
+        done.append(rid)
+    return done
+
+def reminder_sort_key(r):
+    """Soonest-due first across both interval modes, baseline-less rows last."""
+    f = r.get('remaining_fraction')
+    return (f is None, f if f is not None else 0.0)
+
+def parse_reminder_input(d, base=None):
+    """Validate reminder JSON/form input, falling back to `base` (the existing
+    row) for anything the caller omitted. Returns (fields, error)."""
+    def pick(key, default=None):
+        v = d.get(key)
+        if v is not None: return v
+        if base is not None and key in base.keys(): return base[key]
+        return default
+
+    def interval(key):
+        # blank means "unchanged" for an interval, never "cleared"
+        v = d.get(key)
+        if v is None or not str(v).strip():
+            v = base[key] if base is not None and key in base.keys() else None
+        return int(str(v).strip()) if v is not None and str(v).strip() else None
+
+    def odometer(key):
+        # blank *does* clear a manual baseline
+        v = pick(key)
+        return int(str(v).strip()) if v is not None and str(v).strip() else None
+
+    t = str(pick('title', '') or '').strip()
+    itype = 'time' if str(pick('interval_type', 'miles') or '').strip().lower() == 'time' else 'miles'
+    n = str(pick('notes', '') or '').strip()
+    ld_date = str(pick('last_done_date', '') or '').strip() or None
+    try:
+        iv_mi, iv_mo, ld_odo = interval('interval_miles'), interval('interval_months'), odometer('last_done_odometer')
+    except ValueError:
+        return None, 'Mileage and interval values must be whole numbers'
+
+    if not t: return None, 'Title is required'
+    if itype == 'time':
+        if not iv_mo or iv_mo <= 0: return None, 'Month interval is required and must be greater than zero'
+        if ld_date and _rem_date(ld_date) is None: return None, 'Last-done date must be a valid date'
+    else:
+        if not iv_mi or iv_mi <= 0: return None, 'Mileage interval is required and must be greater than zero'
+        if ld_odo is not None and ld_odo < 0: return None, 'Last-done mileage cannot be negative'
+    return {'title': t, 'interval_type': itype, 'interval_miles': iv_mi or 0, 'interval_months': iv_mo,
+            'last_done_odometer': ld_odo, 'last_done_date': ld_date, 'notes': n or None}, None
 
 def can_access_car(conn, cid, user):
     """Check if user can access this car (owns it or is admin)."""
@@ -531,8 +663,8 @@ def get_cars():
         # that have no baseline to count down from.
         rems = [reminder_status(conn, r, s['max_odo'])
                 for r in conn.execute('SELECT * FROM service_reminders WHERE car_id=?', (c['id'],)).fetchall()]
-        rems = [r for r in rems if r['miles_remaining'] is not None]
-        rems.sort(key=lambda r: r['miles_remaining'])
+        rems = [r for r in rems if r['status'] != 'no_baseline']
+        rems.sort(key=reminder_sort_key)
         c['reminders'] = rems[:3]
         c['reminders_total'] = len(rems)
         c['reminders_due'] = sum(1 for r in rems if r['status'] in ('overdue','due_soon'))
@@ -645,9 +777,12 @@ def add_maintenance(cid):
     for f in request.files.getlist('documents'):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,'document'))
+    reset_ids = reset_reminder_baselines(conn, cid, request.form.getlist('reset_reminders'),
+                                         int(odo) if odo else None, sd)
     conn.commit()
     entry = dict(conn.execute('SELECT * FROM maintenance WHERE id=?',(mid,)).fetchone())
     entry['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=?',(mid,)).fetchall()]
+    entry['reminders_reset'] = reset_ids
     conn.close()
     return jsonify(entry), 201
 
@@ -749,7 +884,7 @@ def get_reminders(cid):
     out = [reminder_status(conn, r) for r in rows]
     conn.close()
     # soonest first, with anything lacking a baseline last
-    out.sort(key=lambda r: (r['miles_remaining'] is None, r['miles_remaining']))
+    out.sort(key=reminder_sort_key)
     return jsonify(out)
 
 @app.route('/api/cars/<int:cid>/reminders', methods=['POST'])
@@ -758,21 +893,12 @@ def add_reminder(cid):
     conn = get_db()
     car = can_access_car(conn, cid, g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
-    d = request.get_json(silent=True) or request.form
-    t = (d.get('title') or '').strip()
-    iv = (str(d.get('interval_miles') or '')).strip()
-    ld = (str(d.get('last_done_odometer') or '')).strip()
-    n = (d.get('notes') or '').strip()
-    if not t or not iv: conn.close(); return jsonify({'error':'Title and interval required'}), 400
-    try:
-        iv = int(iv)
-        ld = int(ld) if ld else None
-    except ValueError:
-        conn.close(); return jsonify({'error':'Mileage values must be whole numbers'}), 400
-    if iv <= 0: conn.close(); return jsonify({'error':'Interval must be greater than zero'}), 400
-    if ld is not None and ld < 0: conn.close(); return jsonify({'error':'Last-done mileage cannot be negative'}), 400
-    cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_miles,last_done_odometer,notes) VALUES (?,?,?,?,?)',
-                       (cid, t, iv, ld, n or None))
+    f, err = parse_reminder_input(request.get_json(silent=True) or request.form)
+    if err: conn.close(); return jsonify({'error': err}), 400
+    cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_type,interval_miles,interval_months,last_done_odometer,last_done_date,notes)'
+                       ' VALUES (?,?,?,?,?,?,?,?)',
+                       (cid, f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
+                        f['last_done_odometer'], f['last_done_date'], f['notes']))
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (cur.lastrowid,)).fetchone()
     out = reminder_status(conn, row)
@@ -786,22 +912,12 @@ def update_reminder(rid):
     rem = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
     if not rem: conn.close(); return jsonify({'error':'Not found'}), 404
     if not can_access_car(conn, rem['car_id'], g.user): conn.close(); return jsonify({'error':'Not found'}), 404
-    d = request.get_json(silent=True) or request.form
-    t = (d.get('title') if d.get('title') is not None else rem['title']).strip()
-    iv = str(d.get('interval_miles') if d.get('interval_miles') not in (None,'') else rem['interval_miles']).strip()
-    raw_ld = d.get('last_done_odometer')
-    n = (d.get('notes') if d.get('notes') is not None else (rem['notes'] or '')).strip()
-    if not t or not iv: conn.close(); return jsonify({'error':'Title and interval required'}), 400
-    try:
-        iv = int(iv)
-        # an explicitly empty string clears the manual baseline
-        ld = rem['last_done_odometer'] if raw_ld is None else (int(raw_ld) if str(raw_ld).strip() else None)
-    except ValueError:
-        conn.close(); return jsonify({'error':'Mileage values must be whole numbers'}), 400
-    if iv <= 0: conn.close(); return jsonify({'error':'Interval must be greater than zero'}), 400
-    if ld is not None and ld < 0: conn.close(); return jsonify({'error':'Last-done mileage cannot be negative'}), 400
-    conn.execute('UPDATE service_reminders SET title=?,interval_miles=?,last_done_odometer=?,notes=? WHERE id=?',
-                 (t, iv, ld, n or None, rid))
+    f, err = parse_reminder_input(request.get_json(silent=True) or request.form, rem)
+    if err: conn.close(); return jsonify({'error': err}), 400
+    conn.execute('UPDATE service_reminders SET title=?,interval_type=?,interval_miles=?,interval_months=?,'
+                 'last_done_odometer=?,last_done_date=?,notes=? WHERE id=?',
+                 (f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
+                  f['last_done_odometer'], f['last_done_date'], f['notes'], rid))
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
     out = reminder_status(conn, row)
@@ -837,7 +953,7 @@ def upcoming_reminders():
             d['car_name'] = f"{car['year']} {car['make']} {car['model']}"
             out.append(d)
     conn.close()
-    out.sort(key=lambda r: (r['miles_remaining'] is None, r['miles_remaining']))
+    out.sort(key=reminder_sort_key)
     return jsonify({
         'reminders': out,
         'overdue': sum(1 for r in out if r['status'] == 'overdue'),

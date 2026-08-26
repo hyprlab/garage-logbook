@@ -45,6 +45,21 @@ html{font-size:1.2rem}body{font-family:var(--font-body);background:var(--bg-base
 .input-suffix input{border:none!important;background:none!important;flex:1;min-width:0}
 .input-suffix span{padding-right:12px;color:var(--text-muted);font-size:0.8rem;white-space:nowrap}
 .form-hint{display:block;margin-top:5px;font-size:0.68rem;line-height:1.4;color:var(--text-muted)}
+.hidden{display:none!important}
+.reset-list{display:flex;flex-direction:column;gap:6px}
+.reset-row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:border-color var(--transition)}
+.reset-row:hover{border-color:var(--border-focus)}
+.reset-row.disabled{opacity:0.55;cursor:not-allowed}
+.reset-row.disabled:hover{border-color:var(--border)}
+.reset-row input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:16px!important;height:16px;min-width:0;flex-shrink:0;margin:0;padding:0;position:relative;border:1.5px solid var(--border);border-radius:4px;background:var(--bg-surface);cursor:pointer;transition:all var(--transition)}
+.reset-row input[type="checkbox"]:checked{background:var(--accent);border-color:var(--accent)}
+.reset-row input[type="checkbox"]:checked::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.reset-row input[type="checkbox"]:disabled{cursor:not-allowed}
+.reset-name{flex:1;min-width:0;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reset-to{flex-shrink:0;font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap}
+.interval-mode{display:flex;align-items:center;gap:12px;padding:2px 0}
+.interval-mode-lbl{font-size:0.78rem;color:var(--text-muted);transition:color var(--transition);user-select:none}
+.interval-mode-lbl.active{color:var(--text-primary);font-weight:500}
 .reminders-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .reminders-header .section-title{margin-bottom:0}
 .reminders-list{display:flex;flex-direction:column;gap:8px}
