@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuses to commit CLAUDE.md or .claude/, which are local only: listed in
+# .git/info/exclude, never committed (see CONTRIBUTING.md, "Commits").
+set -e
+
+if git diff --cached --name-only | grep -qE '^(CLAUDE\.md$|\.claude/)'; then
+    echo "pre-commit: CLAUDE.md and .claude/ are local only and must not be committed." >&2
+    echo "            git rm -r --cached CLAUDE.md .claude" >&2
+    exit 1
+fi

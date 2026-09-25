@@ -17,21 +17,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate release notes from commits
-        id: notes
-        run: |
-          # Get commits since the previous tag
-          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
-          if [ -z "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s" HEAD)
-          else
-            COMMITS=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD)
-          fi
-          # Write to file for the release body
-          echo "$COMMITS" > release_notes.txt
+      # The body is the version's in-app changelog entry plus the commits since
+      # the previous release. The title is the version and nothing else.
+      - name: Generate release notes
+        run: tools/release-notes.sh "${GITHUB_REF_NAME#v}" > release_notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: release_notes.txt
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
           generate_release_notes: false
