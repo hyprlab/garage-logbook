@@ -8,28 +8,28 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 
 ## Features
 
-- **Multi-User Support** — Each user has their own garage with isolated vehicles and maintenance records
-- **Vehicle Management** — Add, edit, and delete vehicles with year, make, model, VIN, purchase date, and photo
-- **Maintenance Records** — Log repairs, maintenance, upgrades, and inspections with date, mileage, vendor, cost, notes, and photo galleries
-- **PDF Receipts** — Upload PDF documents (receipts, invoices, estimates) to any maintenance record
-- **Service Reminders** — Set an interval per vehicle and see what is due, due soon, or overdue. A toggle picks what each counter counts down: mileage ("transmission fluid every 30,000 miles") or time ("brake fluid every 24 months"). Reminders anchor to your service records, so logging the work rolls the next due point forward automatically, and when adding a record you can tick which counters to restart from its mileage or date
-- **Dashboard** — At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
-- **Search & Sort** — Live search across vehicles and maintenance records with multiple sort options
-- **CSV Import & Export** — Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
-- **Duplicate Records** — Quickly duplicate an existing maintenance record as a starting point
-- **Role-Based Access** — Two user roles with enforced permissions:
-  - **Admin** — Full access to all users' data, user management, and all features
-  - **Editor** — Configurable per-user permissions (see below)
-- **Granular Permissions** — Admins can toggle individual capabilities for each editor:
+- **Multi-User Support**: Each user has their own garage with isolated vehicles and maintenance records
+- **Vehicle Management**: Add, edit, and delete vehicles with year, make, model, VIN, purchase date, and photo
+- **Maintenance Records**: Log repairs, maintenance, upgrades, and inspections with date, mileage, vendor, cost, notes, and photo galleries
+- **PDF Receipts**: Upload PDF documents (receipts, invoices, estimates) to any maintenance record
+- **Service Reminders**: Set an interval per vehicle and see what is due, due soon, or overdue. A toggle picks what each counter counts down: mileage ("transmission fluid every 30,000 miles") or time ("brake fluid every 24 months"). Reminders anchor to your service records, so logging the work rolls the next due point forward automatically, and when adding a record you can tick which counters to restart from its mileage or date
+- **Dashboard**: At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
+- **Search & Sort**: Live search across vehicles and maintenance records with multiple sort options
+- **CSV Import & Export**: Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
+- **Duplicate Records**: Quickly duplicate an existing maintenance record as a starting point
+- **Role-Based Access**: Two user roles with enforced permissions:
+  - **Admin**: Full access to all users' data, user management, and all features
+  - **Editor**: Configurable per-user permissions (see below)
+- **Granular Permissions**: Admins can toggle individual capabilities for each editor:
   - Add / Edit / Delete vehicles
   - Add / Edit / Delete maintenance records
   - Import CSV / Export CSV
-- **First-Login Security** — Default admin account is forced to change password on first login
-- **Image Gallery** — Upload multiple photos per maintenance record with a lightbox viewer
-- **Light & Dark Theme** — Toggle between light and dark mode in Settings, saved per-user
-- **Per-User Settings** — Each user can customize their dashboard preferences and theme
-- **Mobile Responsive** — Works on desktop, tablet, and mobile
-- **Docker Ready** — Ships as a Docker image with persistent volume storage
+- **First-Login Security**: Default admin account is forced to change password on first login
+- **Image Gallery**: Upload multiple photos per maintenance record with a lightbox viewer
+- **Light & Dark Theme**: Toggle between light and dark mode in Settings, saved per-user
+- **Per-User Settings**: Each user can customize their dashboard preferences and theme
+- **Mobile Responsive**: Works on desktop, tablet, and mobile
+- **Docker Ready**: Ships as a Docker image with persistent volume storage
 
 ---
 
@@ -91,7 +91,7 @@ volumes:
 <summary><strong>.env.example</strong></summary>
 
 ```bash
-# Garage Logbook — Environment Configuration
+# Garage Logbook environment configuration
 # Copy this file to .env and update the values below.
 #
 #   cp .env.example .env
@@ -181,7 +181,7 @@ All configuration is managed through the `.env` file. The `.env.example` file do
 
 | Variable | Required | Description | Default |
 |---|---|---|---|
-| `SECRET_KEY` | **Yes** | Flask session encryption key | — |
+| `SECRET_KEY` | **Yes** | Flask session encryption key | None |
 | `APP_PORT` | No | Port the app is accessible on | `5000` |
 | `DATABASE_PATH` | No | Database path inside the container | `/data/garage_logbook.db` |
 | `UPLOAD_FOLDER` | No | Upload path inside the container | `/data/uploads` |
@@ -224,7 +224,7 @@ Access is limited to the user's own vehicles and records. Admins can configure e
 | Add records | ✓ | Create maintenance records |
 | Edit records | ✓ | Modify existing records |
 | Delete records | ✓ | Remove maintenance records |
-| Import CSV | — | Import records from CSV files |
+| Import CSV | Off | Import records from CSV files |
 | Export CSV | ✓ | Export records to CSV files |
 
 Permissions are configured per-user from **Settings → Users → Edit**.
@@ -313,9 +313,11 @@ garage-logbook/
 ├── Dockerfile                # Container build instructions
 ├── docker-compose.yml        # Compose configuration (pulls the published image)
 ├── .env.example              # Environment variable template
+├── CONTRIBUTING.md           # Commit, versioning and release conventions
 ├── .github/
 │   └── workflows/
 │       └── release.yml       # Auto-create GitHub releases on tag push
+├── tools/                    # Release scripts and git hooks (see CONTRIBUTING.md)
 ├── static/
 │   ├── css/style.css         # Stylesheet (dark + light themes)
 │   ├── js/app.js             # Frontend JavaScript
@@ -333,11 +335,11 @@ garage-logbook/
 
 Garage Logbook is built by a human maintainer working with generative AI as a development tool:
 
-- **Code** — the large majority of the Python, JavaScript, and CSS in this repository was written with Anthropic's Claude (via Claude Code), working from the maintainer's direction. The maintainer decides what gets built, reviews the results, tests every release, and signs off on everything that ships.
-- **Text** — documentation, release notes, and in-app copy are largely AI-drafted and human-edited.
-- **The app itself contains no AI.** Garage Logbook has no AI features and makes no requests to AI services — your vehicle records stay in your own database. AI was used to *build* the app, not to run it.
+- **Code**: the large majority of the Python, JavaScript, and CSS in this repository was written with Anthropic's Claude (via Claude Code), working from the maintainer's direction. The maintainer decides what gets built, reviews the results, tests every release, and signs off on everything that ships.
+- **Text**: documentation, release notes, and in-app copy are largely AI-drafted and human-edited.
+- **The app itself contains no AI.** Garage Logbook has no AI features and makes no requests to AI services. Your vehicle records stay in your own database. AI was used to *build* the app, not to run it.
 
-Bug reports and pull requests are welcome from humans and their AI tools alike; everything merged gets the same human review.
+Bug reports and pull requests are welcome from humans and their AI tools alike; everything merged gets the same human review. See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions.
 
 ## License
 
