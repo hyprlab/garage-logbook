@@ -12,7 +12,8 @@
 #
 # With the tag present, it ends with a "Full changelog" compare link against
 # the previous tag OF THE SAME KIND (a beta against the previous beta, a stable
-# against the previous stable). No commit list: the compare link has it.
+# against the previous stable; a first beta against the last stable). No
+# commit list: the compare link has it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -53,7 +54,10 @@ print("\n".join(out).rstrip())
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     if [[ "$VERSION" == *-* ]]; then
         prev=$(git tag -l 'v*-*' --sort=-v:refname | grep -vx "$TAG" | head -1 || true)
-    else
+    fi
+    # A stable, or the first beta (nothing earlier of its kind): the newest
+    # stable the tag contains.
+    if [ -z "${prev:-}" ]; then
         prev=$(git tag -l 'v*' --sort=-v:refname | grep -vE -- '-' | grep -vx "$TAG" \
                | while read -r t; do git merge-base --is-ancestor "$t" "$TAG" && { echo "$t"; break; }; done || true)
     fi
