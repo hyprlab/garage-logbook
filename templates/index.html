@@ -170,6 +170,15 @@ const APP_VERSION="{{version}}";
             <div class="changelog">
                 <h4 class="changelog-title">Changelog</h4>
                 <div class="changelog-entry">
+                    <div class="changelog-version">Unreleased</div>
+                    <ul>
+                        <li>New: saved vendors. The Vendor field on a service record lists them as you type, and a vendor not on the list can be added from the field without leaving the record</li>
+                        <li>New: a Vendors tab in Settings to add, rename and remove saved vendors</li>
+                        <li>Vendors already used on your records are added to the list on the first start after updating. Spellings that differ only in capitals, spacing or punctuation become one vendor</li>
+                        <li>New: an IMAGE_TAG setting picks the release channel: stable (the default), beta, or a fixed version</li>
+                    </ul>
+                </div>
+                <div class="changelog-entry">
                     <div class="changelog-version">0.3.2</div>
                     <ul>
                         <li>New: service reminders can count down time instead of mileage. A toggle picks which, so "brake fluid every 24 months" works alongside "oil every 5,000 miles"</li>
