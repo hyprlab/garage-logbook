@@ -314,9 +314,6 @@ garage-logbook/
 ├── docker-compose.yml        # Compose configuration (pulls the published image)
 ├── .env.example              # Environment variable template
 ├── CONTRIBUTING.md           # Commit, versioning and release conventions
-├── .github/
-│   └── workflows/
-│       └── release.yml       # Auto-create GitHub releases on tag push
 ├── tools/                    # Release scripts and git hooks (see CONTRIBUTING.md)
 ├── static/
 │   ├── css/style.css         # Stylesheet (dark + light themes)
