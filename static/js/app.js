@@ -49,6 +49,7 @@ function switchSettingsTab(tab){
     const content=document.getElementById('settingsTab-'+tab);
     if(content)content.classList.add('active');
     if(tab==='users')loadUsers();
+    if(tab==='vendors')loadVendorsSettings();
     if(tab==='import'){importLoadCars();importGoToStep(1)}
 }
 
@@ -466,4 +467,73 @@ function carCardReminders(car){
         return `<div class="car-card-rem ${r.status}"><span class="car-card-rem-name">${esc(r.title)}</span><span class="car-card-rem-val">${txt}</span></div>`;
     }).join('');
     return `<div class="car-card-rems"><div class="car-card-rems-hd">Upcoming Service</div>${rows}${more>0?`<div class="car-card-rem-more">+${more} more</div>`:''}</div>`;
+}
+
+// Vendors: a saved list per user, offered as a dropdown on the record Vendor
+// field. Records keep the vendor as plain text, so the field still accepts
+// anything typed; the dropdown only suggests and saves names.
+let vendorList=[];
+async function loadVendors(){try{const r=await fetch('/api/vendors');if(r.ok)vendorList=await r.json()}catch(e){}return vendorList}
+function sortVendors(){vendorList.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}))}
+async function createVendor(name){
+    name=name.replace(/\s+/g,' ').trim();if(!name)return null;
+    const r=await fetch('/api/vendors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Failed');
+    if(!vendorList.some(v=>v.id===d.id)){vendorList.push(d);sortVendors()}
+    return{vendor:d,created:r.status===201};
+}
+function initVendorCombo(input){
+    const menu=input.parentElement.querySelector('.combo-menu');let active=-1,items=[];
+    const isOpen=()=>menu.classList.contains('open');
+    const close=()=>{menu.classList.remove('open');input.setAttribute('aria-expanded','false');active=-1};
+    const highlight=()=>{menu.querySelectorAll('.combo-item').forEach((el,i)=>el.classList.toggle('active',i===active));const el=menu.querySelectorAll('.combo-item')[active];if(el)el.scrollIntoView({block:'nearest'})};
+    // filtering=false (focus, click, arrow keys) lists every vendor when the
+    // field already holds a saved one, so switching vendors needs no clearing.
+    const render=(filtering=true)=>{
+        const typed=input.value.replace(/\s+/g,' ').trim(),q=typed.toLowerCase();
+        const saved=vendorList.some(v=>v.name.toLowerCase()===q),f=filtering||!saved?q:'';
+        const matches=vendorList.filter(v=>!f||v.name.toLowerCase().includes(f));
+        items=matches.map(v=>({type:'pick',name:v.name}));
+        if(typed&&!saved)items.push({type:'add',name:typed});
+        let html=items.map((it,i)=>it.type==='pick'
+            ?`<div class="combo-item" role="option" data-i="${i}">${esc(it.name)}</div>`
+            :`<div class="combo-item combo-add" role="option" data-i="${i}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add "${esc(it.name)}" to vendors</div>`).join('');
+        if(!items.length)html=`<div class="combo-empty">No saved vendors yet. Type a name to add one.</div>`;
+        menu.innerHTML=html;active=typed&&items.length?Math.max(0,items.findIndex(it=>it.name.toLowerCase()===q)):-1;highlight();
+        menu.classList.add('open');input.setAttribute('aria-expanded','true');
+    };
+    const choose=async i=>{
+        const it=items[i];if(!it)return;
+        if(it.type==='pick'){input.value=it.name;close();return}
+        try{const res=await createVendor(it.name);input.value=res.vendor.name;close();toast(res.created?'Vendor added':'Vendor already saved')}
+        catch(e){toast(e.message,'error')}
+    };
+    input.addEventListener('focus',()=>render(false));
+    input.addEventListener('click',()=>{if(!isOpen())render(false)});
+    input.addEventListener('input',()=>render());
+    input.addEventListener('blur',close);
+    input.addEventListener('keydown',e=>{
+        if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!isOpen()){render(false);return}if(!items.length)return;active=e.key==='ArrowDown'?(active+1)%items.length:(active<=0?items.length-1:active-1);highlight()}
+        else if(e.key==='Enter'&&isOpen()&&active>=0){e.preventDefault();choose(active)}
+        else if(e.key==='Escape'&&isOpen()){e.stopPropagation();close()}
+        else if(e.key==='Tab')close();
+    });
+    // mousedown, not click: keeps focus in the input so blur does not close the menu first.
+    menu.addEventListener('mousedown',e=>{e.preventDefault();const el=e.target.closest('.combo-item');if(el)choose(+el.dataset.i)});
+}
+document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-vendor-combo]').forEach(initVendorCombo);loadVendors()});
+
+// Settings > Vendors
+async function loadVendorsSettings(){await loadVendors();renderVendorsSettings()}
+function renderVendorsSettings(){
+    const el=document.getElementById('vendorsList');
+    el.innerHTML=vendorList.length?vendorList.map(v=>`<div class="vendor-row"><span class="vendor-name">${esc(v.name)}</span><button class="btn btn-sm btn-ghost" onclick="deleteVendor(${v.id})">Remove</button></div>`).join(''):'<div class="empty-text">No saved vendors yet.</div>';
+}
+async function settingsAddVendor(e){
+    e.preventDefault();const inp=document.getElementById('newVendorName');if(!inp.value.trim())return;
+    try{const res=await createVendor(inp.value);inp.value='';renderVendorsSettings();toast(res.created?'Vendor added':'Vendor already saved')}catch(err){toast(err.message,'error')}
+}
+async function deleteVendor(id){
+    const v=vendorList.find(x=>x.id===id);if(!v||!confirm(`Remove "${v.name}" from saved vendors?`))return;
+    try{const r=await fetch('/api/vendors/'+id,{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error||'Failed');vendorList=vendorList.filter(x=>x.id!==id);renderVendorsSettings();toast('Vendor removed')}catch(e){toast(e.message,'error')}
 }

@@ -129,6 +129,14 @@ def _init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS vendors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL COLLATE NOCASE,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE (user_id, name),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
             settings TEXT NOT NULL DEFAULT '{}',
@@ -558,6 +566,43 @@ def save_settings():
     if existing: conn.execute('UPDATE user_settings SET settings=? WHERE user_id=?',(s,g.user['id']))
     else: conn.execute('INSERT INTO user_settings (user_id,settings) VALUES (?,?)',(g.user['id'],s))
     conn.commit(); conn.close()
+    return jsonify({'success':True})
+
+# ── Vendors API ────────────────────────────────────────
+# Each user keeps their own list. Records still store the vendor as plain
+# text, so removing a vendor here never touches existing records.
+VENDOR_NAME_MAX = 100
+
+@app.route('/api/vendors', methods=['GET'])
+@login_required
+def get_vendors():
+    conn = get_db()
+    rows = conn.execute('SELECT id,name FROM vendors WHERE user_id=? ORDER BY name COLLATE NOCASE',(g.user['id'],)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/vendors', methods=['POST'])
+@login_required
+def add_vendor():
+    name = ' '.join(((request.get_json() or {}).get('name') or '').split())
+    if not name: return jsonify({'error':'Vendor name required'}), 400
+    if len(name) > VENDOR_NAME_MAX: return jsonify({'error':f'Max {VENDOR_NAME_MAX} characters'}), 400
+    conn = get_db()
+    # Names are unique per user, case-insensitively: adding one that exists
+    # returns the saved spelling instead of failing.
+    cur = conn.execute('INSERT OR IGNORE INTO vendors (user_id,name) VALUES (?,?)',(g.user['id'],name))
+    conn.commit()
+    row = dict(conn.execute('SELECT id,name FROM vendors WHERE user_id=? AND name=?',(g.user['id'],name)).fetchone())
+    conn.close()
+    return jsonify(row), 201 if cur.rowcount else 200
+
+@app.route('/api/vendors/<int:vid>', methods=['DELETE'])
+@login_required
+def delete_vendor(vid):
+    conn = get_db()
+    cur = conn.execute('DELETE FROM vendors WHERE id=? AND user_id=?',(vid,g.user['id']))
+    conn.commit(); conn.close()
+    if not cur.rowcount: return jsonify({'error':'Not found'}), 404
     return jsonify({'success':True})
 
 # ── User Management (admin) ───────────────────────────
