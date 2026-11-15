@@ -64,7 +64,7 @@ Or create the files manually:
 ```yaml
 services:
   garage-logbook:
-    image: hyprlab/garage-logbook:latest
+    image: hyprlab/garage-logbook:${IMAGE_TAG:-latest}
     container_name: garage-logbook
     restart: unless-stopped
     ports:
@@ -173,6 +173,16 @@ docker compose up -d
 
 Your data is stored in a Docker volume and is not affected by updates. Your `.env` file remains untouched.
 
+### Release channels
+
+`IMAGE_TAG` in `.env` picks which releases you get:
+
+- `latest` (the default): stable releases.
+- `beta`: previews of the next stable, published more often and tested less.
+- A version such as `0.4.0`: stay on that release until you change it.
+
+After changing it, run `docker compose pull && docker compose up -d`.
+
 ---
 
 ## Configuration
@@ -183,6 +193,7 @@ All configuration is managed through the `.env` file. The `.env.example` file do
 |---|---|---|---|
 | `SECRET_KEY` | **Yes** | Flask session encryption key | None |
 | `APP_PORT` | No | Port the app is accessible on | `5000` |
+| `IMAGE_TAG` | No | Release channel or version to run: `latest`, `beta` or a version | `latest` |
 | `DATABASE_PATH` | No | Database path inside the container | `/data/garage_logbook.db` |
 | `UPLOAD_FOLDER` | No | Upload path inside the container | `/data/uploads` |
 

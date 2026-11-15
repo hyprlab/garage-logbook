@@ -1,6 +1,6 @@
 services:
   garage-logbook:
-    image: hyprlab/garage-logbook:latest
+    image: hyprlab/garage-logbook:${IMAGE_TAG:-latest}
     container_name: garage-logbook
     restart: unless-stopped
     ports:
