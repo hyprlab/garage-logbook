@@ -37,4 +37,5 @@ docker buildx build --platform "$PLATFORMS" \
     --label "org.opencontainers.image.source=https://github.com/hyprlab/garage-logbook" \
     "${tags[@]}" --push "$src"
 
-echo "Pushed: ${tags[*]//-t /}"
+pushed=(); for t in "${tags[@]}"; do [ "$t" = -t ] || pushed+=("$t"); done
+echo "Pushed: ${pushed[*]}"
