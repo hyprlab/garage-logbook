@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar
+import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar, unicodedata
 from datetime import date
 try:
     import fcntl
@@ -132,11 +132,12 @@ def _init_db():
         CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            name TEXT NOT NULL COLLATE NOCASE,
+            name TEXT NOT NULL, match_key TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')),
-            UNIQUE (user_id, name),
+            UNIQUE (user_id, match_key),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
             settings TEXT NOT NULL DEFAULT '{}',
@@ -235,7 +236,54 @@ def _init_db():
         conn.commit()
     except Exception as e:
         print(f"Migration reminder interval columns: {e}")
+    # One-time: fill each user's vendor list from the vendors already on their
+    # records. Recorded in app_meta so vendors removed later stay removed.
+    try:
+        if not conn.execute("SELECT 1 FROM app_meta WHERE key='vendors_seeded'").fetchone():
+            n = seed_vendors_from_records(conn)
+            conn.execute("INSERT INTO app_meta (key,value) VALUES ('vendors_seeded',datetime('now'))")
+            conn.commit()
+            if n: print(f"Migration: saved {n} vendor(s) from existing records")
+    except Exception as e:
+        conn.rollback()
+        print(f"Migration vendors from records: {e}")
     conn.close()
+
+def clean_vendor_name(name):
+    """Trim and collapse inner whitespace: how a vendor name is stored."""
+    return ' '.join((name or '').split())
+
+def vendor_key(name):
+    """Matching key for vendor names. Ignores case, accents, spacing and
+    punctuation, and treats '&' as 'and', so 'AutoZone', 'Auto Zone' and
+    'autozone.' are one vendor. static/js/app.js has the same rule."""
+    s = unicodedata.normalize('NFKD', name or '')
+    s = ''.join(c for c in s if not unicodedata.combining(c)).lower().replace('&', 'and')
+    return ''.join(c for c in s if c.isalnum())
+
+def seed_vendors_from_records(conn):
+    """Save the vendors found on each user's records to that user's list,
+    one per matching key. The spelling used most often wins; ties go to the
+    most recent record. Returns how many vendors were added."""
+    rows = conn.execute('''SELECT c.user_id, m.parts_vendor, COUNT(*) AS uses,
+            MAX(m.service_date || '|' || printf('%010d', m.id)) AS latest
+        FROM maintenance m JOIN cars c ON c.id=m.car_id
+        WHERE m.parts_vendor IS NOT NULL AND TRIM(m.parts_vendor) != ''
+        GROUP BY c.user_id, m.parts_vendor''').fetchall()
+    # Tally per spelling first: raw values differing only in spacing are one spelling.
+    tally = {}  # (user_id, key) -> {name: [uses, latest]}
+    for r in rows:
+        name = clean_vendor_name(r['parts_vendor'])[:VENDOR_NAME_MAX].strip()
+        k = vendor_key(name)
+        if not k: continue
+        t = tally.setdefault((r['user_id'], k), {}).setdefault(name, [0, ''])
+        t[0] += r['uses']; t[1] = max(t[1], r['latest'])
+    added = 0
+    for (uid, k), spellings in tally.items():
+        name = max(spellings, key=lambda n: tuple(spellings[n]))
+        added += conn.execute('INSERT OR IGNORE INTO vendors (user_id,name,match_key) VALUES (?,?,?)',
+                              (uid, name, k)).rowcount
+    return added
 
 def save_upload(file, subfolder):
     if file and allowed_file(file.filename):
@@ -260,6 +308,8 @@ def get_user_perms(user):
         return {k: perms.get(k, v) for k, v in DEFAULT_PERMS.items()}
     except:
         return dict(DEFAULT_PERMS)
+
+VENDOR_NAME_MAX = 100
 
 MONTH_DAYS = 30.44  # average calendar month, for months-to-days comparisons
 
@@ -570,8 +620,7 @@ def save_settings():
 
 # ── Vendors API ────────────────────────────────────────
 # Each user keeps their own list. Records still store the vendor as plain
-# text, so removing a vendor here never touches existing records.
-VENDOR_NAME_MAX = 100
+# text, so renaming or removing a vendor here never touches existing records.
 
 @app.route('/api/vendors', methods=['GET'])
 @login_required
@@ -581,20 +630,41 @@ def get_vendors():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
+def parse_vendor_name():
+    """(name, key, error) from the request body."""
+    name = clean_vendor_name((request.get_json() or {}).get('name'))
+    if not name: return None, None, 'Vendor name required'
+    if len(name) > VENDOR_NAME_MAX: return None, None, f'Max {VENDOR_NAME_MAX} characters'
+    k = vendor_key(name)
+    if not k: return None, None, 'Vendor name needs a letter or number'
+    return name, k, None
+
 @app.route('/api/vendors', methods=['POST'])
 @login_required
 def add_vendor():
-    name = ' '.join(((request.get_json() or {}).get('name') or '').split())
-    if not name: return jsonify({'error':'Vendor name required'}), 400
-    if len(name) > VENDOR_NAME_MAX: return jsonify({'error':f'Max {VENDOR_NAME_MAX} characters'}), 400
+    name, k, err = parse_vendor_name()
+    if err: return jsonify({'error':err}), 400
     conn = get_db()
-    # Names are unique per user, case-insensitively: adding one that exists
-    # returns the saved spelling instead of failing.
-    cur = conn.execute('INSERT OR IGNORE INTO vendors (user_id,name) VALUES (?,?)',(g.user['id'],name))
+    # A name matching a saved vendor returns that vendor instead of a duplicate.
+    cur = conn.execute('INSERT OR IGNORE INTO vendors (user_id,name,match_key) VALUES (?,?,?)',(g.user['id'],name,k))
     conn.commit()
-    row = dict(conn.execute('SELECT id,name FROM vendors WHERE user_id=? AND name=?',(g.user['id'],name)).fetchone())
+    row = dict(conn.execute('SELECT id,name FROM vendors WHERE user_id=? AND match_key=?',(g.user['id'],k)).fetchone())
     conn.close()
     return jsonify(row), 201 if cur.rowcount else 200
+
+@app.route('/api/vendors/<int:vid>', methods=['PUT'])
+@login_required
+def rename_vendor(vid):
+    name, k, err = parse_vendor_name()
+    if err: return jsonify({'error':err}), 400
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM vendors WHERE id=? AND user_id=?',(vid,g.user['id'])).fetchone():
+        conn.close(); return jsonify({'error':'Not found'}), 404
+    clash = conn.execute('SELECT name FROM vendors WHERE user_id=? AND match_key=? AND id!=?',(g.user['id'],k,vid)).fetchone()
+    if clash: conn.close(); return jsonify({'error':f'"{clash["name"]}" is already saved'}), 409
+    conn.execute('UPDATE vendors SET name=?,match_key=? WHERE id=?',(name,k,vid))
+    conn.commit(); conn.close()
+    return jsonify({'id':vid,'name':name})
 
 @app.route('/api/vendors/<int:vid>', methods=['DELETE'])
 @login_required

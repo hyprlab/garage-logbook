@@ -121,3 +121,4 @@ html{font-size:1.2rem}body{font-family:var(--font-body);background:var(--bg-base
 .vendor-row{display:flex;align-items:center;gap:12px;padding:8px 8px 8px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md)}
 .vendor-name{flex:1;min-width:0;font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #settingsModal .modal{max-width:700px}
+.vendor-edit{flex:1;min-width:0;background:var(--bg-input);border:1px solid var(--border-focus);border-radius:var(--radius-sm);color:var(--text-primary);font:inherit;font-size:0.82rem;padding:6px 10px;outline:none}

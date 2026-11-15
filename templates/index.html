@@ -121,7 +121,7 @@ const APP_VERSION="{{version}}";
         </div></div>
         <!-- Vendors Tab -->
         <div class="settings-tab-content" id="settingsTab-vendors">
-            <p class="settings-hint">Saved vendors appear in the Vendor field when adding or editing a record. Removing one here does not change existing records.</p>
+            <p class="settings-hint">Saved vendors appear in the Vendor field when adding or editing a record. Renaming or removing one here does not change existing records. Names that differ only in capitals, spacing or punctuation count as the same vendor.</p>
             <form class="vendor-add" onsubmit="settingsAddVendor(event)"><input type="text" id="newVendorName" maxlength="100" placeholder="Vendor name" autocomplete="off"><button type="submit" class="btn btn-primary btn-sm">Add</button></form>
             <div id="vendorsList" class="vendors-list"></div>
         </div>

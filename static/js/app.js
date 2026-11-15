@@ -473,6 +473,9 @@ function carCardReminders(car){
 // field. Records keep the vendor as plain text, so the field still accepts
 // anything typed; the dropdown only suggests and saves names.
 let vendorList=[];
+// Same matching rule as vendor_key() in app.py: case, accents, spacing and
+// punctuation are ignored and '&' reads as 'and'.
+function vendorKey(n){return(n||'').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/&/g,'and').replace(/[^\p{L}\p{N}]/gu,'')}
 async function loadVendors(){try{const r=await fetch('/api/vendors');if(r.ok)vendorList=await r.json()}catch(e){}return vendorList}
 function sortVendors(){vendorList.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}))}
 async function createVendor(name){
@@ -490,16 +493,16 @@ function initVendorCombo(input){
     // filtering=false (focus, click, arrow keys) lists every vendor when the
     // field already holds a saved one, so switching vendors needs no clearing.
     const render=(filtering=true)=>{
-        const typed=input.value.replace(/\s+/g,' ').trim(),q=typed.toLowerCase();
-        const saved=vendorList.some(v=>v.name.toLowerCase()===q),f=filtering||!saved?q:'';
-        const matches=vendorList.filter(v=>!f||v.name.toLowerCase().includes(f));
+        const typed=input.value.replace(/\s+/g,' ').trim(),q=vendorKey(typed);
+        const saved=q&&vendorList.some(v=>vendorKey(v.name)===q),f=filtering||!saved?q:'';
+        const matches=vendorList.filter(v=>!f||vendorKey(v.name).includes(f));
         items=matches.map(v=>({type:'pick',name:v.name}));
-        if(typed&&!saved)items.push({type:'add',name:typed});
+        if(q&&!saved)items.push({type:'add',name:typed});
         let html=items.map((it,i)=>it.type==='pick'
             ?`<div class="combo-item" role="option" data-i="${i}">${esc(it.name)}</div>`
             :`<div class="combo-item combo-add" role="option" data-i="${i}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add "${esc(it.name)}" to vendors</div>`).join('');
         if(!items.length)html=`<div class="combo-empty">No saved vendors yet. Type a name to add one.</div>`;
-        menu.innerHTML=html;active=typed&&items.length?Math.max(0,items.findIndex(it=>it.name.toLowerCase()===q)):-1;highlight();
+        menu.innerHTML=html;active=q&&items.length?Math.max(0,items.findIndex(it=>it.type==='pick'&&vendorKey(it.name)===q)):-1;highlight();
         menu.classList.add('open');input.setAttribute('aria-expanded','true');
     };
     const choose=async i=>{
@@ -527,7 +530,20 @@ document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[da
 async function loadVendorsSettings(){await loadVendors();renderVendorsSettings()}
 function renderVendorsSettings(){
     const el=document.getElementById('vendorsList');
-    el.innerHTML=vendorList.length?vendorList.map(v=>`<div class="vendor-row"><span class="vendor-name">${esc(v.name)}</span><button class="btn btn-sm btn-ghost" onclick="deleteVendor(${v.id})">Remove</button></div>`).join(''):'<div class="empty-text">No saved vendors yet.</div>';
+    el.innerHTML=vendorList.length?vendorList.map(v=>`<div class="vendor-row" data-id="${v.id}"><span class="vendor-name">${esc(v.name)}</span><button class="btn btn-sm btn-ghost" onclick="editVendor(${v.id})">Rename</button><button class="btn btn-sm btn-ghost" onclick="deleteVendor(${v.id})">Remove</button></div>`).join(''):'<div class="empty-text">No saved vendors yet.</div>';
+}
+function editVendor(id){
+    const v=vendorList.find(x=>x.id===id),row=document.querySelector(`.vendor-row[data-id="${id}"]`);if(!v||!row)return;
+    row.innerHTML=`<input type="text" class="vendor-edit" maxlength="100" value="${esc(v.name).replace(/"/g,'&quot;')}"><button class="btn btn-sm btn-primary">Save</button><button class="btn btn-sm btn-ghost">Cancel</button>`;
+    const inp=row.querySelector('input'),[save,cancel]=row.querySelectorAll('button');
+    save.onclick=()=>saveVendorName(id,inp.value);cancel.onclick=renderVendorsSettings;
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveVendorName(id,inp.value)}else if(e.key==='Escape'){e.stopPropagation();renderVendorsSettings()}});
+    inp.focus();inp.select();
+}
+async function saveVendorName(id,name){
+    const v=vendorList.find(x=>x.id===id);name=name.replace(/\s+/g,' ').trim();
+    if(!v)return;if(name===v.name){renderVendorsSettings();return}
+    try{const r=await fetch('/api/vendors/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Failed');v.name=d.name;sortVendors();renderVendorsSettings();toast('Vendor renamed')}catch(e){toast(e.message,'error')}
 }
 async function settingsAddVendor(e){
     e.preventDefault();const inp=document.getElementById('newVendorName');if(!inp.value.trim())return;
