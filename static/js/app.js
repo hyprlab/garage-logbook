@@ -466,23 +466,31 @@ function updateSelectionUI(){
     $('selBar').hidden=!n||currentView!=='car-detail';
     $('selCount').innerHTML=`${n}<span class="selbar-noun"> ${n===1?'record':'records'}</span> selected`;
     const btn=$('selAllBtn');btn.hidden=shownSel===shown;btn.textContent=`Select all ${n&&shown?shown:''}`.trim();
+    if(!$('selExportBtn').disabled)$('selExportLabel').textContent=n>1?`Export ${n} PDFs`:'Export PDF';
 }
-// Fetches the PDF rather than navigating to it, so the button can show that
+// The vehicle's whole history, combined into one PDF.
+function exportAllPdf(){if(currentCarId)downloadExport(`/api/cars/${currentCarId}/export.pdf?sort=${maintSort}`,null,'Preparing the PDF…')}
+// One PDF per chosen record. Several arrive together in a zip, because
+// browsers block a page that starts many downloads at once.
+function exportRecordPdfs(ids,btn,carId){
+    carId=carId||currentCarId;if(!carId||!ids.length)return;
+    downloadExport(`/api/cars/${carId}/export-records?ids=${ids.join(',')}&sort=${maintSort}`,btn,
+        ids.length>1?`Preparing ${ids.length} PDFs…`:'Preparing the PDF…',ids.length>1?`${ids.length} PDFs saved in one zip file`:null);
+}
+// Fetches the file rather than navigating to it, so the button can show that
 // it is working and a failure is reported instead of replacing the page.
-async function exportPdf(ids,btn,carId){
-    carId=carId||currentCarId;if(!carId)return;
-    const qs=new URLSearchParams({sort:maintSort});if(ids&&ids.length)qs.set('ids',ids.join(','));
+async function downloadExport(url,btn,busy,done){
     const label=btn&&btn.innerHTML;
-    if(btn){btn.disabled=true;(btn.querySelector('span')||btn).textContent='Preparing…'}
-    else toast('Preparing the PDF…');
+    if(btn){btn.disabled=true;(btn.querySelector('span')||btn).textContent='Preparing…'}else toast(busy);
     try{
-        const r=await api(`/api/cars/${carId}/export.pdf?${qs}`);
-        if(!r.ok)throw new Error(await errorOf(r,'The PDF could not be created.'));
+        const r=await api(url);
+        if(!r.ok)throw new Error(await errorOf(r,'The export could not be created.'));
         const blob=await r.blob(),m=/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition')||'');
-        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=m?m[1]:'service-history.pdf';
+        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=m?m[1]:'export';
         document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+        if(done)toast(done);
     }catch(e){toast(e.message,'error')}
-    finally{if(btn){btn.disabled=false;btn.innerHTML=label}}
+    finally{if(btn){btn.disabled=false;btn.innerHTML=label;updateSelectionUI()}}
 }
 const debouncedSearchMaintenance=debounce(()=>loadMaintenance());
 function exportCarCSV(){if(currentCarId)window.location.href='/api/cars/'+currentCarId+'/export'}
@@ -505,7 +513,7 @@ function openMaintDetail(e){
     let btns='';
     if(hasPerm('can_delete_records'))btns+=`<button class="btn btn--danger btn--sm" onclick="deleteMaintenance(${e.id})">${ic('delete')}Delete</button>`;
     btns+='<span class="spacer"></span>';
-    if(hasPerm('can_export'))btns+=`<button class="btn btn--ghost btn--sm" onclick="exportPdf([${e.id}],this,${e.car_id})">${ic('file')}<span>Export PDF</span></button>`;
+    if(hasPerm('can_export'))btns+=`<button class="btn btn--ghost btn--sm" onclick="exportRecordPdfs([${e.id}],this,${e.car_id})">${ic('file')}<span>Export PDF</span></button>`;
     if(hasPerm('can_add_records'))btns+=`<button class="btn btn--ghost btn--sm" onclick="duplicateMaintenance(${e.id})">${ic('copy')}Duplicate</button>`;
     if(hasPerm('can_edit_records'))btns+=`<button class="btn btn--primary btn--sm" onclick="closeModal('viewMaintModal');openRecordPanel(${e.id})">${ic('edit')}Edit</button>`;
     else btns+=`<button class="btn btn--ghost btn--sm" onclick="closeModal('viewMaintModal')">Close</button>`;

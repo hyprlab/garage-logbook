@@ -9,3 +9,4 @@ venv
 setup.sh
 static/uploads/cars/*
 static/uploads/maintenance/*
+static/fonts/pdf

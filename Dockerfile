@@ -9,6 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 libpang
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# The PDF export's fonts: static Inter weights, built before the rest of the
+# source is copied so a code change doesn't rebuild them.
+COPY tools/build-pdf-fonts.py tools/
+COPY static/fonts/InterVariable.woff2 static/fonts/
+RUN python tools/build-pdf-fonts.py
 COPY . .
 RUN mkdir -p /data/uploads/cars /data/uploads/maintenance
 ENV DATABASE_PATH=/data/garage_logbook.db

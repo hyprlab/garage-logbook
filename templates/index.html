@@ -134,7 +134,7 @@ const APP_VERSION="{{version}}";
                     <button class="menuopt perm-can_add_records" onclick="openReminderModal()">{{ i('bell') }}<span>Add reminder</span></button>
                     <div class="menusep perm-can_import"></div>
                     <button class="menuopt perm-can_import" onclick="openImportForCar()">{{ i('upload') }}<span>Import records from CSV</span></button>
-                    <button class="menuopt perm-can_export" onclick="exportPdf()">{{ i('file') }}<span>Export all records as PDF</span></button>
+                    <button class="menuopt perm-can_export" onclick="exportAllPdf()">{{ i('file') }}<span>Export all records as one PDF</span></button>
                     <button class="menuopt perm-can_export" onclick="exportCarCSV()">{{ i('download') }}<span>Export records as CSV</span></button>
                     <div class="menusep perm-can_delete_cars"></div>
                     <button class="menuopt menuopt--danger perm-can_delete_cars" onclick="deleteCurrentCar()">{{ i('delete') }}<span>Delete vehicle</span></button>
@@ -218,7 +218,7 @@ const APP_VERSION="{{version}}";
                 <span class="selbar-count" id="selCount" aria-live="polite"></span>
                 <button class="selbar-link" id="selAllBtn" onclick="selectAllRecords(true)"></button>
                 <span class="selbar-sep"></span>
-                <button class="btn btn--primary btn--sm" id="selExportBtn" onclick="exportPdf([...selectedIds],this)">{{ i('file') }}<span>Export PDF</span></button>
+                <button class="btn btn--primary btn--sm" id="selExportBtn" onclick="exportRecordPdfs([...selectedIds],this)" title="One PDF for each selected record">{{ i('file') }}<span id="selExportLabel">Export PDF</span></button>
                 <button class="iconbtn iconbtn--sm" onclick="clearSelection()" aria-label="Clear selection" title="Clear selection (Esc)">{{ i('close') }}</button>
             </div>
         </section>
@@ -374,8 +374,8 @@ const APP_VERSION="{{version}}";
                         <li>New: a redesigned dashboard with spending over the last 12 months, spending by type, the reminders coming up next, recent service and every vehicle at a glance</li>
                         <li>New: a top bar on every page with its title, search and main action; the dashboard's time range is picked there instead of in Settings</li>
                         <li>New: service records and vehicles are added and edited in a panel that slides in from the right; records can be logged from the dashboard by choosing the vehicle</li>
-                        <li>New: export service records as a PDF. One record becomes a record sheet; several become a service history with totals, a table of the records, their notes and photos, and their receipts attached to the file</li>
-                        <li>New: tick records on a vehicle's page, or the box at the top of the list to select them all, then export the selection as a PDF. Opening a record offers an export of that record alone, and the vehicle's menu exports every record</li>
+                        <li>New: export a vehicle's whole service history as one PDF from its menu, with totals, a table of every record, and each record's notes, photos and receipts, which are attached to the file</li>
+                        <li>New: tick records on a vehicle's page, or the box at the top of the list to select them all, and export each as its own PDF. Several arrive together in one zip file; an open record can also be exported on its own</li>
                         <li>The Export CSV permission is now called Export records and covers PDF export as well</li>
                         <li>New: the theme can follow the system setting, and a theme button sits in the sidebar footer</li>
                         <li>New: each page has its own address, so reloading or bookmarking keeps your place</li>

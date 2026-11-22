@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar, unicodedata
+import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar, unicodedata, zipfile
 from datetime import date
 try:
     import fcntl
@@ -1141,58 +1141,52 @@ def pdf_url_fetcher():
             return super().fetch(url, headers)
     return LocalFetcher(allowed_protocols=('file',))
 
-@app.route('/api/cars/<int:cid>/export.pdf')
-@perm_required('can_export')
-def export_pdf(cid):
-    conn = get_db()
+def pdf_load(conn, cid, ids=None):
+    """The car (with its owner's name, for admins) and its records in the
+    requested order, each with the photos and documents still on disk."""
     car = can_access_car(conn, cid, g.user)
-    if not car: conn.close(); return jsonify({'error':'Not found'}), 404
+    if not car: return None, None
     car = dict(car)
+    car['owner'] = None
+    if g.user['role'] == 'admin':
+        u = conn.execute('SELECT display_name, username FROM users WHERE id=?', (car['user_id'],)).fetchone()
+        car['owner'] = u and (u['display_name'] or u['username'])
     order = PDF_SORTS.get(request.args.get('sort',''), 'service_date DESC, id DESC')
     rows = conn.execute(f'SELECT * FROM maintenance WHERE car_id=? ORDER BY {order}', (cid,)).fetchall()
-    raw_ids = request.args.get('ids', '').strip()
-    if raw_ids:
-        try: wanted = {int(x) for x in raw_ids.split(',') if x.strip()}
-        except ValueError: conn.close(); return jsonify({'error':'Invalid record list'}), 400
-        rows = [r for r in rows if r['id'] in wanted]
-    if not rows: conn.close(); return jsonify({'error':'No records to export'}), 400
+    if ids is not None: rows = [r for r in rows if r['id'] in ids]
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], 'maintenance')
     records = []
     for r in rows:
         d = dict(r)
         files = [dict(f) for f in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at', (r['id'],)).fetchall()]
-        folder = os.path.join(app.config['UPLOAD_FOLDER'], 'maintenance')
         d['photos'] = [f for f in files if f['file_type'] != 'document' and os.path.exists(os.path.join(folder, f['filename']))]
         d['documents'] = [f for f in files if f['file_type'] == 'document' and os.path.exists(os.path.join(folder, f['filename']))]
         records.append(d)
-    owner = None
-    if g.user['role'] == 'admin':
-        u = conn.execute('SELECT display_name, username FROM users WHERE id=?', (car['user_id'],)).fetchone()
-        owner = u and (u['display_name'] or u['username'])
-    conn.close()
+    return car, records
 
+def pdf_render(car, records, font_config=None):
+    """One PDF: a record sheet for a single record, a service history for more."""
+    from weasyprint import HTML, Attachment   # loaded on first export, not by every worker at start
     by_type = {}
     for r in records:
         t = by_type.setdefault(r['maintenance_type'], {'type': r['maintenance_type'], 'count': 0, 'cost': 0.0})
         t['count'] += 1; t['cost'] += r['cost'] or 0
     dates = sorted(r['service_date'] for r in records if r['service_date'])
     odos = [r['odometer'] for r in records if r['odometer']]
+    uploads = os.path.realpath(app.config['UPLOAD_FOLDER'])
     car_photo = None
-    if car.get('image') and os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'cars', car['image'])):
-        car_photo = 'file://' + os.path.join(os.path.realpath(app.config['UPLOAD_FOLDER']), 'cars', car['image'])
-    car_name = f"{car['year']} {car['make']} {car['model']}"
-    single = len(records) == 1
-    html = render_template('pdf.html', car=car, car_name=car_name, car_photo=car_photo, owner=owner,
-        records=records, single=single,
+    if car.get('image') and os.path.exists(os.path.join(uploads, 'cars', car['image'])):
+        car_photo = 'file://' + os.path.join(uploads, 'cars', car['image'])
+    html = render_template('pdf.html', car=car, car_name=f"{car['year']} {car['make']} {car['model']}",
+        car_photo=car_photo, owner=car['owner'], records=records, single=len(records) == 1,
         detailed=[r for r in records if r['notes'] or r['photos'] or r['documents']],
         total_cost=sum(r['cost'] or 0 for r in records),
         by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
         first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,
         max_odo=max(odos) if odos else None,
-        uploads='file://' + os.path.join(os.path.realpath(app.config['UPLOAD_FOLDER']), 'maintenance'),
+        uploads='file://' + os.path.join(uploads, 'maintenance'),
         static='file://' + os.path.realpath(app.static_folder),
-        exported=date.today(), version=APP_VERSION)
-
-    from weasyprint import HTML, Attachment   # loaded on first export, not by every worker at start
+        exported=date.today(), version=APP_VERSION, static_fonts=pdf_static_fonts())
     # Receipts travel inside the PDF as document attachments, under the names
     # they were uploaded with, so every viewer lists them in its attachments panel.
     attachments, used = [], set()
@@ -1202,16 +1196,65 @@ def export_pdf(cid):
             stem, ext = os.path.splitext(name); n = 2
             while name.lower() in used: name = f'{stem} ({n}){ext}'; n += 1
             used.add(name.lower())
-            attachments.append(Attachment(filename=os.path.join(app.config['UPLOAD_FOLDER'], 'maintenance', d['filename']),
+            attachments.append(Attachment(filename=os.path.join(uploads, 'maintenance', d['filename']),
                 name=name, description=f"{r['title']}, {fmt_day(r['service_date'])}"))
-    pdf = HTML(string=html, base_url=app.static_folder, url_fetcher=pdf_url_fetcher()).write_pdf(
-        optimize_images=True, jpeg_quality=82, dpi=200, attachments=attachments)
-    if single:
-        r = records[0]
-        fname = pdf_slug(car['year'], car['make'], car['model'], r['title'], r['service_date']) + '.pdf'
-    else:
-        fname = pdf_slug(car['year'], car['make'], car['model'], 'service-history') + '.pdf'
-    return Response(pdf, mimetype='application/pdf', headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+    return HTML(string=html, base_url=app.static_folder, url_fetcher=pdf_url_fetcher()).write_pdf(
+        optimize_images=True, jpeg_quality=82, dpi=200, attachments=attachments, font_config=font_config)
+
+def pdf_static_fonts():
+    """The weights tools/build-pdf-fonts.py built, or none (variable font) without them."""
+    folder = os.path.join(app.static_folder, 'fonts', 'pdf')
+    weights = [w for w in (400, 600, 700, 800) if os.path.exists(os.path.join(folder, f'Inter-{w}.ttf'))]
+    return weights if len(weights) == 4 else []
+
+def pdf_name(car, record=None):
+    if record: return pdf_slug(car['year'], car['make'], car['model'], record['title'], record['service_date']) + '.pdf'
+    return pdf_slug(car['year'], car['make'], car['model'], 'service-history') + '.pdf'
+
+def download(body, mimetype, fname):
+    return Response(body, mimetype=mimetype, headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+# Each PDF takes about a second to render; this many stays well inside the
+# worker's 120 second timeout on slower hardware too.
+PDF_BATCH_MAX = 50
+
+@app.route('/api/cars/<int:cid>/export.pdf')
+@perm_required('can_export')
+def export_pdf(cid):
+    """Every record of one vehicle, combined into its service history."""
+    conn = get_db()
+    car, records = pdf_load(conn, cid)
+    conn.close()
+    if car is None: return jsonify({'error':'Not found'}), 404
+    if not records: return jsonify({'error':'This vehicle has no records to export'}), 400
+    return download(pdf_render(car, records), 'application/pdf', pdf_name(car, records[0] if len(records) == 1 else None))
+
+@app.route('/api/cars/<int:cid>/export-records')
+@perm_required('can_export')
+def export_record_pdfs(cid):
+    """The chosen records, one PDF each: the PDF itself for one record, a zip
+    of them for several, since browsers stop a page saving many files at once."""
+    try: ids = {int(x) for x in request.args.get('ids', '').split(',') if x.strip()}
+    except ValueError: return jsonify({'error':'Invalid record list'}), 400
+    if not ids: return jsonify({'error':'Choose at least one record'}), 400
+    if len(ids) > PDF_BATCH_MAX:
+        return jsonify({'error':f'Export up to {PDF_BATCH_MAX} records at a time, or use Export all records as one PDF'}), 400
+    conn = get_db()
+    car, records = pdf_load(conn, cid, ids)
+    conn.close()
+    if car is None: return jsonify({'error':'Not found'}), 404
+    if not records: return jsonify({'error':'No records to export'}), 400
+    if len(records) == 1:
+        return download(pdf_render(car, records), 'application/pdf', pdf_name(car, records[0]))
+    from weasyprint.text.fonts import FontConfiguration
+    fonts, buf, used = FontConfiguration(), io.BytesIO(), set()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:   # PDFs are compressed already
+        for r in records:
+            name = pdf_name(car, r); stem = name[:-4]; n = 2
+            while name in used: name = f'{stem}-{n}.pdf'; n += 1
+            used.add(name)
+            z.writestr(name, pdf_render(car, [r], fonts))
+    return download(buf.getvalue(), 'application/zip', pdf_slug(car['year'], car['make'], car['model'], 'service-records') + '.zip')
 
 # ── CSV Import (admin + permitted editors) ─────────────
 @app.route('/api/import/preview', methods=['POST'])

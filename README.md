@@ -16,7 +16,7 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Dashboard**: At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
 - **Search & Sort**: Live search across vehicles and maintenance records with multiple sort options
 - **CSV Import & Export**: Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
-- **PDF Export**: Export one record, a selection, or a vehicle's whole history as a printable PDF with totals, a table of records, notes and photos, and the record's receipts attached to the file
+- **PDF Export**: Export a vehicle's whole history as one printable PDF, or selected records as one PDF each (several arrive together in a zip file), with notes, photos, and the record's receipts attached to the file
 - **Duplicate Records**: Quickly duplicate an existing maintenance record as a starting point
 - **Role-Based Access**: Two user roles with enforced permissions:
   - **Admin**: Full access to all users' data, user management, and all features

@@ -1,5 +1,7 @@
-{#- The printable service history, rendered to PDF by WeasyPrint (export_pdf in
-    app.py). Print colors are the light theme's; sizes are in points. -#}
+{#- A printable service record or service history, rendered to PDF by
+    WeasyPrint (pdf_render in app.py). Print colors are the light theme's;
+    sizes are in points. Weights are 400, 600, 700 and 800 only: the ones
+    tools/build-pdf-fonts.py builds. -#}
 {%- macro type_tag(t) -%}<span class="tag t-{{ (t or 'maintenance')|lower }}"><i></i>{{ t }}</span>{%- endmacro -%}
 {%- macro facts(r) -%}
 <table class="facts"><tr>
@@ -28,13 +30,16 @@
 <meta name="author" content="Garage Logbook">
 <meta name="generator" content="Garage Logbook {{ version }}">
 <style>
-@font-face { font-family: Inter; src: url("{{ static }}/fonts/InterVariable.woff2"); font-weight: 400 900; font-style: normal; }
-@font-face { font-family: Inter; src: url("{{ static }}/fonts/InterVariable-Italic.woff2"); font-weight: 400 900; font-style: italic; }
+{% if static_fonts %}{% for w in static_fonts %}
+@font-face { font-family: Inter; src: url("{{ static }}/fonts/pdf/Inter-{{ w }}.ttf"); font-weight: {{ w }}; font-style: normal; }{% endfor %}
+{% else %}{# Without tools/build-pdf-fonts.py: the same look, rendered more slowly. #}
+@font-face { font-family: Inter; src: url("{{ static }}/fonts/InterVariable.woff2"); font-weight: 100 900; font-style: normal; }
+{% endif %}
 @page {
     size: letter;
     margin: 0.65in 0.7in 0.75in;
-    @bottom-left { content: "{{ car_name }}{% if not single %}, service history{% endif %}"; font: 500 7.5pt Inter; color: #8b90a0; vertical-align: top; padding-top: 14pt; }
-    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 500 7.5pt Inter; color: #8b90a0; vertical-align: top; padding-top: 14pt; font-variant-numeric: tabular-nums; }
+    @bottom-left { content: "{{ car_name }}{% if not single %}, service history{% endif %}"; font: 400 7.5pt Inter; color: #8b90a0; vertical-align: top; padding-top: 14pt; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 400 7.5pt Inter; color: #8b90a0; vertical-align: top; padding-top: 14pt; font-variant-numeric: tabular-nums; }
 }
 * { box-sizing: border-box; }
 html { font-family: Inter; font-size: 9.5pt; line-height: 1.5; color: #1a1d26; }
@@ -93,7 +98,7 @@ table.records { width: 100%; border-collapse: collapse; }
 .records .date { width: 0.9in; color: #5a5f72; white-space: nowrap; }
 .records .title { font-weight: 600; }
 .records .sub { display: block; color: #8b90a0; font-size: 8pt; margin-top: 1pt; }
-.records .pref { color: #8b90a0; font-size: 7.5pt; font-weight: 500; text-decoration: none; margin-left: 5pt; }
+.records .pref { color: #8b90a0; font-size: 7.5pt; font-weight: 400; text-decoration: none; margin-left: 5pt; }
 .records .pref::after { content: "page " target-counter(attr(href), page); }
 .records .cost { font-weight: 600; }
 .records tfoot td { border-bottom: 0; border-top: 0.75pt solid #d4d7de; padding-top: 8pt; font-weight: 700; }
@@ -117,7 +122,7 @@ table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-l
 .photos--2 { grid-template-columns: 1fr 1fr; }
 .photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 5pt; break-inside: avoid; }
 .docs { margin-bottom: 12pt; break-inside: avoid; }
-.doc { display: inline-block; margin: 2pt 6pt 2pt 0; padding: 3pt 8pt; border: 0.75pt solid #d4d7de; border-radius: 5pt; font-size: 8pt; font-weight: 500; color: #1a1d26; text-decoration: none; }
+.doc { display: inline-block; margin: 2pt 6pt 2pt 0; padding: 3pt 8pt; border: 0.75pt solid #d4d7de; border-radius: 5pt; font-size: 8pt; font-weight: 400; color: #1a1d26; text-decoration: none; }
 
 /* A single record */
 .sheet .crumb { font-size: 8.5pt; color: #5a5f72; margin-bottom: 6pt; }

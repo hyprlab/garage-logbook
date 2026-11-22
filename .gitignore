@@ -13,3 +13,5 @@ static/uploads/maintenance/*
 temp/
 docker-compose.override.yml
 *.init.lock
+# Built by tools/build-pdf-fonts.py
+static/fonts/pdf/
