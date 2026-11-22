@@ -3,7 +3,7 @@
 let currentCarId=null,currentView=null,maintSort='date_desc',carsCache=[],pendingRecordId=null;
 let lightboxImages=[],lightboxIndex=0;
 let userSettings={dashboard_range:'all',show_vehicles:true,show_records:true,show_cost:true,show_due:true,theme:'dark'};
-const PERM_LABELS={can_add_cars:'Add vehicles',can_edit_cars:'Edit vehicles',can_delete_cars:'Delete vehicles',can_add_records:'Add records',can_edit_records:'Edit records',can_delete_records:'Delete records',can_import:'Import CSV',can_export:'Export CSV'};
+const PERM_LABELS={can_add_cars:'Add vehicles',can_edit_cars:'Edit vehicles',can_delete_cars:'Delete vehicles',can_add_records:'Add records',can_edit_records:'Edit records',can_delete_records:'Delete records',can_import:'Import CSV',can_export:'Export records'};
 const RANGE_LABELS={all:'All time',year:'This year',month:'This month'};
 const TYPES=['Maintenance','Repair','Upgrade','Inspection'];
 const MONTH_DAYS=30.44;
@@ -61,7 +61,7 @@ function showView(v,title){
     document.querySelectorAll('.view').forEach(el=>el.classList.toggle('is-active',el.id==='view-'+v));
     document.querySelectorAll('.navitem').forEach(b=>b.classList.toggle('is-active',b.dataset.view===v));
     document.querySelectorAll('.topbar-actions').forEach(a=>a.classList.toggle('is-active',a.dataset.for===v));
-    if(v!=='car-detail'){currentCarId=null;setActiveSidebarCar(null)}
+    if(v!=='car-detail'){currentCarId=null;setActiveSidebarCar(null);selectedIds.clear();$('selBar').hidden=true}
     const titles={dashboard:'Dashboard',garage:'My Garage'};
     $('contextTitle').innerHTML=title||esc(titles[v]);
     document.title=(v==='car-detail'?$('contextTitle').textContent.split('/').pop().trim():titles[v])+' · Garage Logbook';
@@ -140,7 +140,8 @@ document.addEventListener('keydown',e=>{
             if(top==='settingsModal'&&$('settingsModal').querySelector('.settings-modal').classList.contains('is-showing-pane')&&matchMedia('(max-width: 700px)').matches){settingsBack();return}
             closeModal(top);return;
         }
-        if($('sidebar').classList.contains('is-open'))toggleSidebar(false);
+        if($('sidebar').classList.contains('is-open')){toggleSidebar(false);return}
+        if(selectedIds.size&&currentView==='car-detail')clearSelection();
         return;
     }
     if($('lightbox').classList.contains('open')){if(e.key==='ArrowLeft')lightboxPrev();if(e.key==='ArrowRight')lightboxNext();return}
@@ -311,17 +312,22 @@ function renderUpcoming(up){
         return`<button class="attn-item s-${r.status}" onclick="go('car/${r.car_id}')"><span class="dot"></span><span class="attn-title">${esc(r.title)}</span><span class="attn-val">${big}</span><span class="attn-car">${esc(r.car_name)}</span><span class="attn-lbl">${lbl}</span></button>`}).join('')
         :`<div class="empty"><p class="empty-title">Nothing coming up</p><p class="empty-text">Add a reminder on a vehicle's page, such as an oil change every 5,000 miles, and it counts down here.</p></div>`;
 }
+// Rows on a vehicle's page can be ticked for export, when the user may export.
+const canSelect=()=>hasPerm('can_export');
 function recordRow(e,showCar){
-    const att=(e.images||[]).length;
-    return`<button class="rrow" onclick="${showCar?`goToMaintRecord(${e.car_id},${e.id})`:`openMaintDetailById(${e.id})`}">
+    const att=(e.images||[]).length,sel=!showCar&&canSelect(),on=sel&&selectedIds.has(e.id);
+    const open=showCar?`goToMaintRecord(${e.car_id},${e.id})`:`openMaintDetailById(${e.id})`;
+    return`${sel?`<div class="rrow rrow--sel${on?' is-selected':''}" role="button" tabindex="0" data-id="${e.id}" onclick="${open}" onkeydown="if(event.key==='Enter'&&event.target===this)${open}">
+        <label class="r-check" onclick="event.stopPropagation()" title="Select"><input type="checkbox" ${on?'checked':''} onchange="toggleRecordSelect(${e.id},this.checked)" aria-label="Select ${attr(e.title)}"></label>`
+        :`<button class="rrow" onclick="${open}">`}
         <span class="r-date">${shortDate(e.service_date)}</span>
         <span class="r-main"><span class="r-title">${esc(e.title)}${att?`<span class="r-attach" title="${plural(att,'attachment')}">${ic('paperclip')}${att}</span>`:''}</span><span class="r-sub">${showCar?esc(`${e.year} ${e.make} ${e.model}`):esc(e.parts_vendor||'No vendor')}</span></span>
         <span class="r-type tag ${typeClass(e.maintenance_type)}"><i class="dot"></i>${esc(e.maintenance_type)}</span>
         <span class="r-num r-odo">${e.odometer?n(e.odometer)+' mi':'—'}</span>
         <span class="r-num r-cost">${e.cost!=null&&e.cost!==''?money(e.cost):'—'}</span>
-    </button>`;
+    ${sel?'</div>':'</button>'}`;
 }
-function recordHead(){return`<div class="rhead"><span>Date</span><span>Service</span><span class="r-type">Type</span><span class="r-num r-odo">Odometer</span><span class="r-num">Cost</span></div>`}
+function recordHead(selectable){return`<div class="rhead">${selectable?`<label class="r-check" title="Select all"><input type="checkbox" id="selectAll" onchange="selectAllRecords(this.checked)" aria-label="Select all records"></label>`:''}<span>Date</span><span>Service</span><span class="r-type">Type</span><span class="r-num r-odo">Odometer</span><span class="r-num">Cost</span></div>`}
 function renderRecent(list){
     $('recentActivity').innerHTML=list.length?recordHead()+list.map(e=>recordRow(e,true)).join('')
         :`<div class="empty"><p class="empty-title">No service logged yet</p><p class="empty-text">Records you add appear here, newest first.</p></div>`;
@@ -404,7 +410,7 @@ function deleteCurrentCar(){if(currentCarId)deleteCar(currentCarId)}
 async function showCar(id){
     const changing=currentCarId!==id;currentCarId=id;
     let car;try{car=await getJSON('/api/cars/'+id)}catch(e){toast('That vehicle was not found.','error');go('dashboard');return}
-    if(changing){$('maintSearch').value='';$('maintenanceList').innerHTML='';$('remindersList').innerHTML=''}
+    if(changing){$('maintSearch').value='';$('maintenanceList').innerHTML='';$('remindersList').innerHTML='';selectedIds.clear();maintEntries=[];updateSelectionUI()}
     renderCarHero(car);
     showView('car-detail',`<a class="crumb" href="#garage">My Garage</a><span class="crumb-sep">/</span><span>${esc(carName(car))}</span>`);
     currentCarId=id;setActiveSidebarCar(id);
@@ -438,10 +444,45 @@ async function loadMaintenance(){
     maintEntries=entries;
     if(!q)renderCarStats(entries);
     $('recordsCount').textContent=q?`${plural(entries.length,'match','matches')}`:(entries.length?plural(entries.length,'record'):'');
-    $('maintenanceList').innerHTML=entries.length?recordHead()+entries.map(e=>recordRow(e,false)).join('')
+    $('maintenanceList').closest('.records-panel').classList.toggle('is-selectable',canSelect());
+    $('maintenanceList').innerHTML=entries.length?recordHead(canSelect())+entries.map(e=>recordRow(e,false)).join('')
         :q?`<div class="empty"><p class="empty-title">No records match “${esc(q)}”</p><p class="empty-text">Search looks at the title, vendor and notes.</p></div>`
           :`<div class="empty"><p class="empty-title">No records yet</p><p class="empty-text">Log the first service, repair or upgrade for this vehicle.</p>${hasPerm('can_add_records')?`<button class="btn btn--primary" onclick="openRecordPanel()">${ic('plus')}Add record</button>`:''}</div>`;
+    // A record deleted since it was ticked drops out of the selection.
+    if(!q){const ids=new Set(entries.map(e=>e.id));selectedIds.forEach(id=>{if(!ids.has(id))selectedIds.delete(id)})}
+    updateSelectionUI();
     if(pendingRecordId){const e=entries.find(x=>x.id===pendingRecordId);pendingRecordId=null;if(e)openMaintDetail(e)}
+}
+
+// ————— Selecting records, and exporting them as a PDF —————
+const selectedIds=new Set();
+function toggleRecordSelect(id,on){if(on)selectedIds.add(id);else selectedIds.delete(id);updateSelectionUI()}
+function selectAllRecords(on){maintEntries.forEach(e=>on?selectedIds.add(e.id):selectedIds.delete(e.id));updateSelectionUI()}
+function clearSelection(){selectedIds.clear();updateSelectionUI()}
+function updateSelectionUI(){
+    const n=selectedIds.size,shown=maintEntries.length,shownSel=maintEntries.filter(e=>selectedIds.has(e.id)).length;
+    document.querySelectorAll('#maintenanceList .rrow--sel').forEach(r=>{const on=selectedIds.has(+r.dataset.id);r.classList.toggle('is-selected',on);const c=r.querySelector('input');if(c)c.checked=on});
+    const all=$('selectAll');if(all){all.checked=shown>0&&shownSel===shown;all.indeterminate=shownSel>0&&shownSel<shown}
+    $('selBar').hidden=!n||currentView!=='car-detail';
+    $('selCount').innerHTML=`${n}<span class="selbar-noun"> ${n===1?'record':'records'}</span> selected`;
+    const btn=$('selAllBtn');btn.hidden=shownSel===shown;btn.textContent=`Select all ${n&&shown?shown:''}`.trim();
+}
+// Fetches the PDF rather than navigating to it, so the button can show that
+// it is working and a failure is reported instead of replacing the page.
+async function exportPdf(ids,btn,carId){
+    carId=carId||currentCarId;if(!carId)return;
+    const qs=new URLSearchParams({sort:maintSort});if(ids&&ids.length)qs.set('ids',ids.join(','));
+    const label=btn&&btn.innerHTML;
+    if(btn){btn.disabled=true;(btn.querySelector('span')||btn).textContent='Preparing…'}
+    else toast('Preparing the PDF…');
+    try{
+        const r=await api(`/api/cars/${carId}/export.pdf?${qs}`);
+        if(!r.ok)throw new Error(await errorOf(r,'The PDF could not be created.'));
+        const blob=await r.blob(),m=/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition')||'');
+        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=m?m[1]:'service-history.pdf';
+        document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+    }catch(e){toast(e.message,'error')}
+    finally{if(btn){btn.disabled=false;btn.innerHTML=label}}
 }
 const debouncedSearchMaintenance=debounce(()=>loadMaintenance());
 function exportCarCSV(){if(currentCarId)window.location.href='/api/cars/'+currentCarId+'/export'}
@@ -464,6 +505,7 @@ function openMaintDetail(e){
     let btns='';
     if(hasPerm('can_delete_records'))btns+=`<button class="btn btn--danger btn--sm" onclick="deleteMaintenance(${e.id})">${ic('delete')}Delete</button>`;
     btns+='<span class="spacer"></span>';
+    if(hasPerm('can_export'))btns+=`<button class="btn btn--ghost btn--sm" onclick="exportPdf([${e.id}],this,${e.car_id})">${ic('file')}<span>Export PDF</span></button>`;
     if(hasPerm('can_add_records'))btns+=`<button class="btn btn--ghost btn--sm" onclick="duplicateMaintenance(${e.id})">${ic('copy')}Duplicate</button>`;
     if(hasPerm('can_edit_records'))btns+=`<button class="btn btn--primary btn--sm" onclick="closeModal('viewMaintModal');openRecordPanel(${e.id})">${ic('edit')}Edit</button>`;
     else btns+=`<button class="btn btn--ghost btn--sm" onclick="closeModal('viewMaintModal')">Close</button>`;

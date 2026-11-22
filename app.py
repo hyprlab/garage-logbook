@@ -1099,6 +1099,120 @@ def export_csv(cid):
     fname = f"{car['year']}_{car['make']}_{car['model']}_maintenance.csv".replace(' ','_')
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition':f'attachment; filename="{fname}"'})
 
+# ── PDF Export ─────────────────────────────────────────
+# A printable service history, laid out as HTML and rendered by WeasyPrint.
+# One record becomes a record sheet; several become a history with a table of
+# every record and a page of detail for each that has notes, photos or receipts.
+@app.template_filter('money')
+def fmt_money(v):
+    return '—' if v is None or v == '' else f'${float(v):,.2f}'
+
+@app.template_filter('num')
+def fmt_num(v):
+    return '—' if v is None or v == '' else f'{int(float(v)):,}'
+
+@app.template_filter('day')
+def fmt_day(v, style='long'):
+    """'long' Sep 30, 2026; 'month' Sep 2026."""
+    if not v: return '—'
+    try: d = v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
+    except ValueError: return str(v)
+    return f'{calendar.month_abbr[d.month]} {d.year}' if style == 'month' else f'{calendar.month_abbr[d.month]} {d.day}, {d.year}'
+
+PDF_SORTS = {'date_asc':'service_date ASC, id ASC','cost_desc':'cost DESC','cost_asc':'cost ASC','odo_desc':'odometer DESC'}
+
+def pdf_slug(*parts):
+    s = '-'.join(str(p) for p in parts if p)
+    s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-') or 'export'
+
+def pdf_url_fetcher():
+    """A fetcher for local files from the app's static folder and the upload
+    folder only. The template builds every URL itself, but a renderer that can
+    be talked into fetching anything else is not worth the risk."""
+    from weasyprint.urls import URLFetcher
+    from urllib.parse import unquote
+    roots = [os.path.realpath(app.static_folder), os.path.realpath(app.config['UPLOAD_FOLDER'])]
+    class LocalFetcher(URLFetcher):
+        def fetch(self, url, headers=None):
+            path = os.path.realpath(unquote(url[len('file://'):].split('?')[0])) if url.startswith('file://') else ''
+            if not any(path == r or path.startswith(r + os.sep) for r in roots):
+                raise ValueError(f'Blocked resource in PDF export: {url}')
+            return super().fetch(url, headers)
+    return LocalFetcher(allowed_protocols=('file',))
+
+@app.route('/api/cars/<int:cid>/export.pdf')
+@perm_required('can_export')
+def export_pdf(cid):
+    conn = get_db()
+    car = can_access_car(conn, cid, g.user)
+    if not car: conn.close(); return jsonify({'error':'Not found'}), 404
+    car = dict(car)
+    order = PDF_SORTS.get(request.args.get('sort',''), 'service_date DESC, id DESC')
+    rows = conn.execute(f'SELECT * FROM maintenance WHERE car_id=? ORDER BY {order}', (cid,)).fetchall()
+    raw_ids = request.args.get('ids', '').strip()
+    if raw_ids:
+        try: wanted = {int(x) for x in raw_ids.split(',') if x.strip()}
+        except ValueError: conn.close(); return jsonify({'error':'Invalid record list'}), 400
+        rows = [r for r in rows if r['id'] in wanted]
+    if not rows: conn.close(); return jsonify({'error':'No records to export'}), 400
+    records = []
+    for r in rows:
+        d = dict(r)
+        files = [dict(f) for f in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at', (r['id'],)).fetchall()]
+        folder = os.path.join(app.config['UPLOAD_FOLDER'], 'maintenance')
+        d['photos'] = [f for f in files if f['file_type'] != 'document' and os.path.exists(os.path.join(folder, f['filename']))]
+        d['documents'] = [f for f in files if f['file_type'] == 'document' and os.path.exists(os.path.join(folder, f['filename']))]
+        records.append(d)
+    owner = None
+    if g.user['role'] == 'admin':
+        u = conn.execute('SELECT display_name, username FROM users WHERE id=?', (car['user_id'],)).fetchone()
+        owner = u and (u['display_name'] or u['username'])
+    conn.close()
+
+    by_type = {}
+    for r in records:
+        t = by_type.setdefault(r['maintenance_type'], {'type': r['maintenance_type'], 'count': 0, 'cost': 0.0})
+        t['count'] += 1; t['cost'] += r['cost'] or 0
+    dates = sorted(r['service_date'] for r in records if r['service_date'])
+    odos = [r['odometer'] for r in records if r['odometer']]
+    car_photo = None
+    if car.get('image') and os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'cars', car['image'])):
+        car_photo = 'file://' + os.path.join(os.path.realpath(app.config['UPLOAD_FOLDER']), 'cars', car['image'])
+    car_name = f"{car['year']} {car['make']} {car['model']}"
+    single = len(records) == 1
+    html = render_template('pdf.html', car=car, car_name=car_name, car_photo=car_photo, owner=owner,
+        records=records, single=single,
+        detailed=[r for r in records if r['notes'] or r['photos'] or r['documents']],
+        total_cost=sum(r['cost'] or 0 for r in records),
+        by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
+        first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,
+        max_odo=max(odos) if odos else None,
+        uploads='file://' + os.path.join(os.path.realpath(app.config['UPLOAD_FOLDER']), 'maintenance'),
+        static='file://' + os.path.realpath(app.static_folder),
+        exported=date.today(), version=APP_VERSION)
+
+    from weasyprint import HTML, Attachment   # loaded on first export, not by every worker at start
+    # Receipts travel inside the PDF as document attachments, under the names
+    # they were uploaded with, so every viewer lists them in its attachments panel.
+    attachments, used = [], set()
+    for r in records:
+        for d in r['documents']:
+            name = d['original_name'] or 'document.pdf'
+            stem, ext = os.path.splitext(name); n = 2
+            while name.lower() in used: name = f'{stem} ({n}){ext}'; n += 1
+            used.add(name.lower())
+            attachments.append(Attachment(filename=os.path.join(app.config['UPLOAD_FOLDER'], 'maintenance', d['filename']),
+                name=name, description=f"{r['title']}, {fmt_day(r['service_date'])}"))
+    pdf = HTML(string=html, base_url=app.static_folder, url_fetcher=pdf_url_fetcher()).write_pdf(
+        optimize_images=True, jpeg_quality=82, dpi=200, attachments=attachments)
+    if single:
+        r = records[0]
+        fname = pdf_slug(car['year'], car['make'], car['model'], r['title'], r['service_date']) + '.pdf'
+    else:
+        fname = pdf_slug(car['year'], car['make'], car['model'], 'service-history') + '.pdf'
+    return Response(pdf, mimetype='application/pdf', headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
 # ── CSV Import (admin + permitted editors) ─────────────
 @app.route('/api/import/preview', methods=['POST'])
 @perm_required('can_import')

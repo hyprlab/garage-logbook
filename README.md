@@ -16,6 +16,7 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Dashboard**: At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles
 - **Search & Sort**: Live search across vehicles and maintenance records with multiple sort options
 - **CSV Import & Export**: Import maintenance records from CSV files with field mapping and dry-run preview, or export all records for any vehicle
+- **PDF Export**: Export one record, a selection, or a vehicle's whole history as a printable PDF with totals, a table of records, notes and photos, and the record's receipts attached to the file
 - **Duplicate Records**: Quickly duplicate an existing maintenance record as a starting point
 - **Role-Based Access**: Two user roles with enforced permissions:
   - **Admin**: Full access to all users' data, user management, and all features
@@ -23,10 +24,10 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Granular Permissions**: Admins can toggle individual capabilities for each editor:
   - Add / Edit / Delete vehicles
   - Add / Edit / Delete maintenance records
-  - Import CSV / Export CSV
+  - Import CSV / Export records (CSV and PDF)
 - **First-Login Security**: Default admin account is forced to change password on first login
 - **Image Gallery**: Upload multiple photos per maintenance record with a lightbox viewer
-- **Light & Dark Theme**: Toggle between light and dark mode in Settings, saved per-user
+- **Light & Dark Theme**: Light, dark, or follow the system, from Settings or the sidebar, saved per-user
 - **Per-User Settings**: Each user can customize their dashboard preferences and theme
 - **Mobile Responsive**: Works on desktop, tablet, and mobile
 - **Docker Ready**: Ships as a Docker image with persistent volume storage
@@ -236,7 +237,7 @@ Access is limited to the user's own vehicles and records. Admins can configure e
 | Edit records | ✓ | Modify existing records |
 | Delete records | ✓ | Remove maintenance records |
 | Import CSV | Off | Import records from CSV files |
-| Export CSV | ✓ | Export records to CSV files |
+| Export records | ✓ | Export records to CSV and PDF files |
 
 Permissions are configured per-user from **Settings → Users → Edit**.
 
