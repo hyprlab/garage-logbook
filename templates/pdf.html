@@ -12,16 +12,14 @@
 </tr></table>
 {%- endmacro -%}
 {%- macro parts(r) -%}
-{% if r.parts %}
-<table class="parts">
-    <thead><tr><th>Part</th><th>Vendor</th><th class="r">Cost</th></tr></thead>
+{% if r.parts or r.labor is not none %}
+{% set extras = [('Labor', r.labor), ('Shipping', r.shipping), ('Tax', r.tax)]|selectattr(1, 'ne', none)|list %}
+<table class="parts{% if not r.parts %} parts--sums{% endif %}">
+    {% if r.parts %}<thead><tr><th>Part</th><th>Vendor</th><th class="r">Cost</th></tr></thead>{% endif %}
     <tbody>
     {% for p in r.parts %}<tr><td class="pn">{{ p.name }}</td><td class="pv">{{ p.vendor or '' }}</td><td class="r">{{ p.cost|money }}</td></tr>{% endfor %}
-    {% if r.shipping is not none or r.tax is not none %}
-    <tr class="sum first"><td></td><td>Parts</td><td class="r">{{ r.parts_subtotal|money }}</td></tr>
-    {% if r.shipping is not none %}<tr class="sum"><td></td><td>Shipping</td><td class="r">{{ r.shipping|money }}</td></tr>{% endif %}
-    {% if r.tax is not none %}<tr class="sum"><td></td><td>Tax</td><td class="r">{{ r.tax|money }}</td></tr>{% endif %}
-    {% endif %}
+    {% if r.parts and extras %}<tr class="sum first"><td></td><td>Parts</td><td class="r">{{ r.parts_subtotal|money }}</td></tr>{% endif %}
+    {% for label, v in extras %}<tr class="sum{% if loop.first and not r.parts %} first{% endif %}"><td></td><td>{{ label }}</td><td class="r">{{ v|money }}</td></tr>{% endfor %}
     <tr class="total"><td></td><td>Total</td><td class="r">{{ r.cost|money }}</td></tr>
     </tbody>
 </table>
@@ -146,6 +144,9 @@ table.parts { width: 100%; border-collapse: collapse; margin-bottom: 12pt; font-
 /* After shipping and tax, a rule under them; straight after the parts, theirs serves. */
 .parts tr.sum + tr.total td + td { border-top: 0.75pt solid #d4d7de; }
 .parts tr.sum + tr.total td { padding-top: 5pt; }
+/* Labor without parts: just the sums, set under the Cost column as they are with parts. */
+table.parts--sums { width: calc(32% + 0.9in); margin-left: auto; }
+.parts--sums tr.sum.first td { padding-top: 0; }
 .sheet table.parts { font-size: 9.5pt; margin-bottom: 18pt; }
 .notes { white-space: pre-wrap; color: #3a3f50; line-height: 1.6; margin-bottom: 11pt; orphans: 3; widows: 3; }
 .notes-label, .docs-title { font-size: 7.5pt; font-weight: 600; color: #8b90a0; margin-bottom: 3pt; }

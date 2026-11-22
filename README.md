@@ -11,7 +11,7 @@ Built and maintained by [Hyprlab](https://hyprlab.co)
 - **Multi-User Support**: Each user has their own garage with isolated vehicles and maintenance records
 - **Vehicle Management**: Add, edit, and delete vehicles with year, make, model, VIN, purchase date, and photo
 - **Maintenance Records**: Log repairs, maintenance, upgrades, and inspections with date, mileage, vendor, cost, notes, and photo galleries
-- **Parts**: List the parts that went into a record, each with its vendor and cost, plus shipping and tax; the record's cost becomes their total
+- **Parts and Labor**: List the parts that went into a record, each with its vendor and cost, and add labor, shipping and tax; the record's cost becomes their total. Records without them keep a single cost
 - **PDF Receipts**: Upload PDF documents (receipts, invoices, estimates) to any maintenance record
 - **Service Reminders**: Set an interval per vehicle and see what is due, due soon, or overdue. A toggle picks what each counter counts down: mileage ("transmission fluid every 30,000 miles") or time ("brake fluid every 24 months"). Reminders anchor to your service records, so logging the work rolls the next due point forward automatically, and when adding a record you can tick which counters to restart from its mileage or date
 - **Dashboard**: At-a-glance stats for total vehicles, service records, money spent, and service due, with configurable time ranges and an upcoming-service list across all vehicles

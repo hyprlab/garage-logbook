@@ -243,16 +243,15 @@ def _init_db():
         conn.commit()
     except Exception as e:
         print(f"Migration reminder interval columns: {e}")
-    # Migration: records gained shipping and tax, which go with their parts.
+    # Migration: records gained labor, shipping and tax, which add up with their parts.
     try:
         cols = [r['name'] for r in conn.execute("PRAGMA table_info(maintenance)").fetchall()]
-        if 'shipping' not in cols:
-            conn.execute("ALTER TABLE maintenance ADD COLUMN shipping REAL")
-        if 'tax' not in cols:
-            conn.execute("ALTER TABLE maintenance ADD COLUMN tax REAL")
+        for col in ('labor', 'shipping', 'tax'):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE maintenance ADD COLUMN {col} REAL")
         conn.commit()
     except Exception as e:
-        print(f"Migration shipping and tax columns: {e}")
+        print(f"Migration labor, shipping and tax columns: {e}")
     # One-time: fill each user's vendor list from the vendors already on their
     # records. Recorded in app_meta so vendors removed later stay removed.
     try:
@@ -876,8 +875,9 @@ def delete_car(cid):
 # ── Maintenance API ────────────────────────────────────
 # ── Parts ──────────────────────────────────────────────
 # A record can list the parts that went into it, each with a vendor and cost,
-# plus shipping and tax. With parts, the record's cost is their total, so every
-# sum and chart that reads maintenance.cost stays right.
+# and the labor paid for, plus shipping and tax. With parts or labor, the
+# record's cost is their total, so every sum and chart that reads
+# maintenance.cost stays right. Without either it is typed in, as before.
 PARTS_MAX = 100
 
 def parse_money(raw, label):
@@ -890,34 +890,42 @@ def parse_money(raw, label):
     if v < 0: return None, f'{label} cannot be negative.'
     return v, None
 
+COST_PARTS = ('labor', 'shipping', 'tax')
+NO_EXTRAS = dict.fromkeys(COST_PARTS)
+
 def parse_parts_input(form):
-    """From a record form: (parts, shipping, tax, error), or parts=None when the
-    form does not carry a parts list (older clients), which leaves them alone."""
-    if 'parts' not in form: return None, None, None, None
+    """From a record form: (parts, extras, error), extras being labor, shipping
+    and tax. parts is None when the form carries no parts list (older clients),
+    which leaves parts and extras alone."""
+    if 'parts' not in form: return None, None, None
     try: raw = json.loads(form.get('parts') or '[]')
-    except ValueError: return None, None, None, 'The parts list could not be read.'
-    if not isinstance(raw, list): return None, None, None, 'The parts list could not be read.'
+    except ValueError: return None, None, 'The parts list could not be read.'
+    if not isinstance(raw, list): return None, None, 'The parts list could not be read.'
     parts = []
     for item in raw:
-        if not isinstance(item, dict): return None, None, None, 'The parts list could not be read.'
+        if not isinstance(item, dict): return None, None, 'The parts list could not be read.'
         name = ' '.join(str(item.get('name') or '').split())[:200]
         vendor = clean_vendor_name(str(item.get('vendor') or ''))[:100]
         cost, err = parse_money(item.get('cost'), 'A part cost')
-        if err: return None, None, None, err
+        if err: return None, None, err
         if not name and not vendor and cost is None: continue   # a blank line
-        if not name: return None, None, None, 'Each part needs a name.'
+        if not name: return None, None, 'Each part needs a name.'
         parts.append({'name': name, 'vendor': vendor or None, 'cost': cost})
-    if len(parts) > PARTS_MAX: return None, None, None, f'A record can list up to {PARTS_MAX} parts.'
-    shipping = tax = None
-    if parts:
-        shipping, err = parse_money(form.get('shipping'), 'Shipping')
-        if err: return None, None, None, err
-        tax, err = parse_money(form.get('tax'), 'Tax')
-        if err: return None, None, None, err
-    return parts, shipping, tax, None
+    if len(parts) > PARTS_MAX: return None, None, f'A record can list up to {PARTS_MAX} parts.'
+    extras = {}
+    for key in COST_PARTS:
+        extras[key], err = parse_money(form.get(key), key.capitalize())
+        if err: return None, None, err
+    # Shipping and tax only count alongside parts or labor.
+    if not parts and extras['labor'] is None: extras = dict(NO_EXTRAS)
+    return parts, extras, None
 
-def parts_total(parts, shipping, tax):
-    return round(sum(p['cost'] or 0 for p in parts) + (shipping or 0) + (tax or 0), 2)
+def itemized(parts, extras):
+    """Whether the cost adds itself up: there are parts, or labor."""
+    return bool(parts) or extras['labor'] is not None
+
+def parts_total(parts, extras):
+    return round(sum(p['cost'] or 0 for p in parts) + sum(extras[k] or 0 for k in COST_PARTS), 2)
 
 def save_parts(conn, mid, parts):
     conn.execute('DELETE FROM maintenance_parts WHERE maintenance_id=?', (mid,))
@@ -965,11 +973,12 @@ def add_maintenance(cid):
     n=request.form.get('notes','').strip()
     if not t or not mt or not sd: conn.close(); return jsonify({'error':'Title, type, date required'}), 400
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
-    parts, shipping, tax, err = parse_parts_input(request.form)
+    parts, extras, err = parse_parts_input(request.form)
     if err: conn.close(); return jsonify({'error': err}), 400
-    cost = parts_total(parts, shipping, tax) if parts else (float(c) if c else None)
-    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?)',
-        (cid,t,mt,sd,int(odo) if odo else None,v or None,cost,n or None,shipping,tax))
+    parts, extras = parts or [], extras or dict(NO_EXTRAS)
+    cost = parts_total(parts, extras) if itemized(parts, extras) else (float(c) if c else None)
+    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,labor,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        (cid,t,mt,sd,int(odo) if odo else None,v or None,cost,n or None,extras['labor'],extras['shipping'],extras['tax']))
     mid = cur.lastrowid
     if parts: save_parts(conn, mid, parts)
     for f in request.files.getlist('gallery'):
@@ -1000,17 +1009,17 @@ def update_maintenance(mid):
     n=request.form.get('notes',entry['notes'] or '').strip()
     if not t or not mt or not sd: conn.close(); return jsonify({'error':'Title, type, date required'}), 400
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
-    parts, shipping, tax, err = parse_parts_input(request.form)
+    parts, extras, err = parse_parts_input(request.form)
     if err: conn.close(); return jsonify({'error': err}), 400
     cost = float(c) if c else entry['cost']
-    if parts is None:   # no parts list sent: parts, shipping and tax stay as they are
-        shipping, tax = entry['shipping'], entry['tax']
-        if load_parts(conn, mid): cost = entry['cost']
+    if parts is None:   # no parts list sent: parts, labor, shipping and tax stay as they are
+        extras = {k: entry[k] for k in COST_PARTS}
+        if itemized(load_parts(conn, mid), extras): cost = entry['cost']
     else:
-        if parts: cost = parts_total(parts, shipping, tax)
+        if itemized(parts, extras): cost = parts_total(parts, extras)
         save_parts(conn, mid, parts)
-    conn.execute('UPDATE maintenance SET title=?,maintenance_type=?,service_date=?,odometer=?,parts_vendor=?,cost=?,notes=?,shipping=?,tax=? WHERE id=?',
-        (t,mt,sd,int(odo) if odo else entry['odometer'],v or None,cost,n or None,shipping,tax,mid))
+    conn.execute('UPDATE maintenance SET title=?,maintenance_type=?,service_date=?,odometer=?,parts_vendor=?,cost=?,notes=?,labor=?,shipping=?,tax=? WHERE id=?',
+        (t,mt,sd,int(odo) if odo else entry['odometer'],v or None,cost,n or None,extras['labor'],extras['shipping'],extras['tax'],mid))
     for f in request.files.getlist('gallery'):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,get_file_type(fn)))
@@ -1044,8 +1053,8 @@ def duplicate_maintenance(mid):
     if not entry: conn.close(); return jsonify({'error':'Not found'}), 404
     car = can_access_car(conn, entry['car_id'], g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
-    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?)',
-        (entry['car_id'],entry['title']+' (copy)',entry['maintenance_type'],entry['service_date'],entry['odometer'],entry['parts_vendor'],entry['cost'],entry['notes'],entry['shipping'],entry['tax']))
+    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,labor,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        (entry['car_id'],entry['title']+' (copy)',entry['maintenance_type'],entry['service_date'],entry['odometer'],entry['parts_vendor'],entry['cost'],entry['notes'],entry['labor'],entry['shipping'],entry['tax']))
     save_parts(conn, cur.lastrowid, load_parts(conn, mid))
     conn.commit()
     new_entry = record_out(conn, conn.execute('SELECT * FROM maintenance WHERE id=?',(cur.lastrowid,)).fetchone())
@@ -1178,13 +1187,13 @@ def export_csv(cid):
     entries = conn.execute('SELECT * FROM maintenance WHERE car_id=? ORDER BY service_date DESC',(cid,)).fetchall()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes','Shipping','Tax','Parts'])
+    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes','Labor','Shipping','Tax','Parts'])
     def part_text(p):
         return ', '.join(x for x in (p['name'], p['vendor'], f"{p['cost']:.2f}" if p['cost'] is not None else '') if x)
     for e in entries:
         parts = '; '.join(part_text(p) for p in load_parts(conn, e['id']))
         writer.writerow([e['title'],e['maintenance_type'],e['service_date'],e['odometer'] or '',e['parts_vendor'] or '',e['cost'] or '',e['notes'] or '',
-                         '' if e['shipping'] is None else e['shipping'],'' if e['tax'] is None else e['tax'],parts])
+                         *('' if e[k] is None else e[k] for k in COST_PARTS),parts])
     conn.close()
     fname = f"{car['year']}_{car['make']}_{car['model']}_maintenance.csv".replace(' ','_')
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition':f'attachment; filename="{fname}"'})
@@ -1271,7 +1280,7 @@ def pdf_render(car, records, font_config=None):
         car_photo = 'file://' + os.path.join(uploads, 'cars', car['image'])
     html = render_template('pdf.html', car=car, car_name=f"{car['year']} {car['make']} {car['model']}",
         car_photo=car_photo, owner=car['owner'], records=records, single=len(records) == 1,
-        detailed=[r for r in records if r['notes'] or r['parts'] or r['photos'] or r['documents']],
+        detailed=[r for r in records if r['notes'] or r['parts'] or r['labor'] is not None or r['photos'] or r['documents']],
         total_cost=sum(r['cost'] or 0 for r in records),
         by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
         first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,

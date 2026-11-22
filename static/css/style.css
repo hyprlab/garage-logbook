@@ -740,10 +740,10 @@ button.kpi:hover { background: var(--hover); }
 }
 .parts .affix { height: 36px; }
 .parts .affix:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--wash); }
-.parts-add { align-self: flex-start; }
+.parts-adds { display: flex; flex-wrap: wrap; gap: 8px; }
 .parts-add svg.i { width: 15px; height: 15px; }
-.parts-sum { align-self: flex-end; width: min(100%, 272px); display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
-.sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; align-items: center; }
+.parts-sum { align-self: flex-end; width: min(100%, 308px); display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+.sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px 28px; gap: 8px; align-items: center; }
 .sum-row .sum-v { text-align: right; padding-right: 13px; font-variant-numeric: tabular-nums; color: var(--ink); }
 .sum-total { padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line-soft); font-weight: 650; color: var(--ink); }
 .sum-total .sum-v { font-weight: 700; }
@@ -1067,6 +1067,7 @@ html[data-theme="dark"] .toast.error { background: #4a1f22; color: #ffe1dd; box-
   .part-row { grid-template-columns: minmax(0, 1fr) 104px 28px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
   .part-row > [data-k="name"] { grid-column: 1 / -1; }
   .parts-cols { display: none; }
+  .sum-row { grid-template-columns: minmax(0, 1fr) 104px 28px; }
   .kpi { padding: 14px; }
   .fleet { grid-template-columns: minmax(0, 1fr); }
   .slideout { width: 100vw; border-left: 0; }

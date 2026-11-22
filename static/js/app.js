@@ -528,7 +528,7 @@ function renderRecordView(e){
         ${e.notes?`<section><h4 class="detail-label">Notes</h4><p class="detail-notes">${esc(e.notes)}</p></section>`:''}
         ${docs.length?`<section><h4 class="detail-label">Receipts and documents</h4><div class="docs">${docs.map(d=>`<a href="/uploads/maintenance/${attr(d.filename)}" target="_blank" rel="noopener" class="doc-link">${ic('file')}<span>${esc(d.original_name||'Document.pdf')}</span></a>`).join('')}</div></section>`:''}
         ${images.length?`<section><h4 class="detail-label">Photos</h4><div class="gallery">${images.map((img,idx)=>`<img src="${attr(urls[idx])}" alt="" loading="lazy" data-idx="${idx}">`).join('')}</div></section>`:''}
-        ${!e.notes&&!(e.parts||[]).length&&!docs.length&&!images.length?`<p class="record-empty">No parts, notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
+        ${!e.notes&&!(e.parts||[]).length&&e.labor==null&&!docs.length&&!images.length?`<p class="record-empty">No parts, notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
         ${e.created_at?`<p class="record-meta">Logged ${formatDate(e.created_at.slice(0,10))}</p>`:''}`;
     $('viewMaintContent').querySelectorAll('.gallery img').forEach(img=>img.addEventListener('click',()=>openLightbox(urls,+img.dataset.idx)));
     let btns='';
@@ -542,12 +542,14 @@ function renderRecordView(e){
 // The parts on a record, as a short invoice: each part with its vendor, then
 // shipping and tax when there are any, then the total.
 function partsTable(e){
-    const parts=e.parts||[];if(!parts.length)return'';
-    const amt=v=>v!=null&&v!==''?money(v):'—',sub=parts.reduce((a,p)=>a+(+p.cost||0),0),extra=e.shipping!=null||e.tax!=null;
+    const parts=e.parts||[];if(!parts.length&&e.labor==null)return'';
+    const amt=v=>v!=null&&v!==''?money(v):'—',sub=parts.reduce((a,p)=>a+(+p.cost||0),0);
+    const extras=[['Labor',e.labor],['Shipping',e.shipping],['Tax',e.tax]].filter(x=>x[1]!=null);
     const sum=(l,v,cls='')=>`<div class="pt-sum${cls}"><span>${l}</span><span>${v}</span></div>`;
-    return`<section><h4 class="detail-label">Parts <span class="detail-count">${parts.length}</span></h4><div class="pt">
+    const title=parts.length?`Parts${e.labor!=null?' and labor':''} <span class="detail-count">${parts.length}</span>`:'Labor';
+    return`<section><h4 class="detail-label">${title}</h4><div class="pt">
         ${parts.map(p=>`<div class="pt-row"><span class="pt-name">${esc(p.name)}${p.vendor?`<small>${esc(p.vendor)}</small>`:''}</span><span class="pt-cost">${amt(p.cost)}</span></div>`).join('')}
-        ${extra?sum('Parts',money(sub)):''}${e.shipping!=null?sum('Shipping',money(e.shipping)):''}${e.tax!=null?sum('Tax',money(e.tax)):''}
+        ${parts.length&&extras.length?sum('Parts',money(sub)):''}${extras.map(([l,v])=>sum(l,money(v))).join('')}
         ${sum('Total',amt(e.cost),' pt-total')}
     </div></section>`;
 }
@@ -583,6 +585,7 @@ async function openRecordPanel(rec){
     f.reset();recordEditId=editing?rec.id:null;f.maint_id.value=recordEditId||'';
     $('galleryThumbs').innerHTML='';$('recordDocList').innerHTML='';
     $('partsList').innerHTML='';(editing?rec.parts||[]:[]).forEach(p=>addPartRow(p));
+    const hasLabor=editing&&rec.labor!=null;$('laborRow').hidden=!hasLabor;$('laborAdd').hidden=hasLabor;
     const sel=$('recordCar');
     sel.innerHTML=carsCache.map(c=>`<option value="${c.id}">${esc(carName(c))}</option>`).join('');
     sel.value=String(editing?rec.car_id:(currentCarId||carsCache[0].id));
@@ -593,7 +596,7 @@ async function openRecordPanel(rec){
     if(editing){
         f.title.value=rec.title;f.service_date.value=rec.service_date;f.odometer.value=rec.odometer??'';
         f.parts_vendor.value=rec.parts_vendor||'';f.cost.value=rec.cost??'';f.notes.value=rec.notes||'';
-        const amt=v=>v!=null&&v!==''?(+v).toFixed(2):'';f.shipping.value=amt(rec.shipping);f.tax.value=amt(rec.tax);
+        const amt=v=>v!=null&&v!==''?(+v).toFixed(2):'';['labor','shipping','tax'].forEach(k=>f[k].value=amt(rec[k]));
         const ty=f.querySelector(`[name="maintenance_type"][value="${rec.maintenance_type}"]`);if(ty)ty.checked=true;
         $('maintResetBlock').classList.add('hidden');maintResetReminders=[];
     }else{
@@ -658,10 +661,19 @@ function removePartRow(btn){
 function readPartRow(row){const v=k=>row.querySelector(`[data-k="${k}"]`).value.trim();return{name:v('name'),vendor:v('vendor'),cost:v('cost')}}
 function readParts(){return[...$('partsList').children].map(readPartRow).filter(p=>p.name||p.vendor||p.cost!=='')}
 // With parts, Cost is theirs plus shipping and tax, and stops being typed in.
+// Labor is one amount, not a line: shown once asked for, or when the record has it.
+function showLabor(on){
+    const f=$('recordForm');$('laborRow').hidden=!on;$('laborAdd').hidden=on;
+    if(!on)f.labor.value='';
+    updatePartsTotals();
+    if(on)f.labor.focus();else document.getElementById('laborAdd').focus();
+}
+// With parts or labor, Cost is theirs plus shipping and tax, and stops being typed in.
 function updatePartsTotals(){
-    const f=$('recordForm'),has=$('partsList').children.length>0,parts=readParts();
-    const sub=parts.reduce((a,p)=>a+(+p.cost||0),0),total=sub+(+f.shipping.value||0)+(+f.tax.value||0);
-    $('partsCols').hidden=!has;$('partsSum').hidden=!has;$('partsHint').hidden=has;
+    const f=$('recordForm'),rows=$('partsList').children.length>0,labor=!$('laborRow').hidden,has=rows||labor;
+    const sub=readParts().reduce((a,p)=>a+(+p.cost||0),0);
+    const total=sub+['labor','shipping','tax'].reduce((a,k)=>a+(+f[k].value||0),0);
+    $('partsCols').hidden=!rows;$('partsSubtotalRow').hidden=!rows;$('partsSum').hidden=!has;$('partsHint').hidden=has;
     $('partsSubtotal').textContent=money(sub);$('partsTotal').textContent=money(total);
     f.cost.readOnly=has;f.cost.tabIndex=has?-1:0;f.cost.closest('.affix').classList.toggle('is-derived',has);$('costHint').hidden=!has;
     if(has)f.cost.value=total.toFixed(2);
@@ -669,7 +681,7 @@ function updatePartsTotals(){
 function initPartsForm(){
     const list=$('partsList'),f=$('recordForm');
     list.addEventListener('input',updatePartsTotals);
-    f.shipping.addEventListener('input',updatePartsTotals);f.tax.addEventListener('input',updatePartsTotals);
+    ['labor','shipping','tax'].forEach(k=>f[k].addEventListener('input',updatePartsTotals));
     // Enter in a part line goes to a new line instead of saving the record.
     list.addEventListener('keydown',e=>{
         if(e.key!=='Enter'||e.defaultPrevented||!e.target.matches('input'))return;
