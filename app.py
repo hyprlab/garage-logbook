@@ -25,7 +25,7 @@ from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, g, Response, send_from_directory,
                    has_request_context)
 
-APP_VERSION = '1.0.0'
+APP_VERSION = '1.0.1'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key-in-production')
