@@ -379,7 +379,7 @@ async function openCarModal(id){
             if(c.image){p.classList.add('has-preview');p.innerHTML=`<img src="/uploads/cars/${attr(c.image)}" alt="">`}}
         catch(e){toast('That vehicle could not be loaded.','error');return}
     }
-    openModal('carModal');setTimeout(()=>f.year.focus(),60);
+    openModal('carModal');setTimeout(()=>f.year.focus({preventScroll:true}),330);
 }
 async function submitCar(e){
     e.preventDefault();const f=e.target,id=f.car_id.value,b=$('carSubmitBtn'),label=b.textContent;

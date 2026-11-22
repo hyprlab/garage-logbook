@@ -365,7 +365,7 @@ const APP_VERSION="{{version}}";
                     <ul>
                         <li>New: a redesigned dashboard with spending over the last 12 months, spending by type, the reminders coming up next, recent service and every vehicle at a glance</li>
                         <li>New: a top bar on every page with its title, search and main action; the dashboard's time range is picked there instead of in Settings</li>
-                        <li>New: service records are added and edited in a panel that slides in from the right, and can be logged from the dashboard by choosing the vehicle</li>
+                        <li>New: service records and vehicles are added and edited in a panel that slides in from the right; records can be logged from the dashboard by choosing the vehicle</li>
                         <li>New: the theme can follow the system setting, and a theme button sits in the sidebar footer</li>
                         <li>New: each page has its own address, so reloading or bookmarking keeps your place</li>
                         <li>Settings opens as a two-pane window with its sections down the side; on phones it opens as a list</li>
@@ -565,22 +565,23 @@ const APP_VERSION="{{version}}";
 </div>
 
 <!-- ————— Vehicle ————— -->
-<div class="overlay" id="carModal" role="dialog" aria-modal="true" aria-labelledby="carModalTitle">
-<div class="modal modal--wide">
-    <div class="modal-head"><h2 id="carModalTitle">Add vehicle</h2><button class="iconbtn" onclick="closeModal('carModal')" aria-label="Close">{{ i('close') }}</button></div>
-    <form id="carForm" onsubmit="submitCar(event)">
+<div class="overlay overlay--side" id="carModal" role="dialog" aria-modal="true" aria-labelledby="carModalTitle">
+<div class="slideout">
+    <div class="modal-head"><h2 id="carModalTitle">Add vehicle</h2><button class="iconbtn" onclick="closeModal('carModal')" aria-label="Close" title="Close (Esc)">{{ i('close') }}</button></div>
+    <form id="carForm" onsubmit="submitCar(event)" style="display:contents">
         <input type="hidden" name="car_id">
         <div class="modal-body">
-            <div class="form-grid" style="grid-template-columns:110px 1fr 1fr">
+            <div class="form-grid form-grid--ymm">
                 <label class="field"><span class="field-label">Year <span class="req">*</span></span><input type="number" name="year" min="1900" max="2099" required placeholder="2012"></label>
-                <label class="field"><span class="field-label">Make <span class="req">*</span></span><input type="text" name="make" required placeholder="Toyota"></label>
-                <label class="field"><span class="field-label">Model <span class="req">*</span></span><input type="text" name="model" required placeholder="Tacoma"></label>
+                <label class="field"><span class="field-label">Make <span class="req">*</span></span><input type="text" name="make" required placeholder="Toyota" autocomplete="off"></label>
+                <label class="field"><span class="field-label">Model <span class="req">*</span></span><input type="text" name="model" required placeholder="Tacoma" autocomplete="off"></label>
             </div>
             <div class="form-grid">
                 <label class="field"><span class="field-label">VIN <span class="opt">optional</span></span><input type="text" name="vin" maxlength="17" autocomplete="off" style="text-transform:uppercase"></label>
                 <label class="field"><span class="field-label">Purchase date <span class="opt">optional</span></span><input type="date" name="purchase_date"></label>
             </div>
-            <div class="field"><span class="field-label">Photo</span>
+            <div class="form-section">
+                <div class="form-section-title">Photo</div>
                 <div class="drop drop--photo"><input type="file" name="image" accept="image/*" onchange="previewFile(this,'carImagePreview')" aria-label="Vehicle photo"><div class="drop-face" id="carImagePreview"></div></div>
             </div>
         </div>
