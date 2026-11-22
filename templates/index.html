@@ -3,373 +3,725 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Garage Logbook — Hyprlab</title>
+    <title>Garage Logbook</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/css/style.css?v={{ version }}">
+    {# The theme is known before first paint, so a light theme never flashes dark. #}
+    <script>
+    (function(){var p;try{p=localStorage.getItem('gl-theme')}catch(e){}p=p||'{{ theme_pref|default("dark") }}';
+    var d=p==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;document.documentElement.setAttribute('data-theme',d)})();
+    </script>
 </head>
 <body>
+{% macro i(name, cls='') %}<svg class="i {{ cls }}" aria-hidden="true"><use href="#i-{{ name }}"/></svg>{% endmacro %}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="8" rx="1.5"/><rect x="13" y="4" width="7" height="5" rx="1.5"/><rect x="4" y="14" width="7" height="6" rx="1.5"/><rect x="13" y="11" width="7" height="9" rx="1.5"/></symbol>
+    <symbol id="i-garage" viewBox="0 0 24 24"><path d="M3.5 20V9.2L12 4l8.5 5.2V20"/><path d="M7 20v-7.5h10V20M7 15.5h10"/></symbol>
+    <symbol id="i-car" viewBox="0 0 24 24"><path d="M3.5 16v-3.2l1.6-4.3A2.3 2.3 0 0 1 7.3 7h9.4a2.3 2.3 0 0 1 2.2 1.5l1.6 4.3V16a1 1 0 0 1-1 1h-1.2M5.7 17H4.5a1 1 0 0 1-1-1M10.2 17h3.6M4 12.5h16"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-sign-out" viewBox="0 0 24 24"><path d="M14 5H7a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h7M17 15.5 20.5 12 17 8.5M20 12H10"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2 2 0 0 0-3-3L5 17v3ZM13.5 6.5l3 3"/></symbol>
+    <symbol id="i-delete" viewBox="0 0 24 24"><path d="M5.5 7.5h13M9.5 7V5h5v2M7 7.5l.8 12a1 1 0 0 0 1 .9h6.4a1 1 0 0 0 1-.9l.8-12M10.2 11v6M13.8 11v6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4.5M7.5 9 12 4.5 16.5 9M4.5 15v3.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V15"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4.5V15M7.5 10.5 12 15l4.5-4.5M4.5 15v3.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V15"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M14 6h7M14 12h5M14 18h3"/></symbol>
+    <symbol id="i-tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-done" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.4 2.6 2.6 5-5.6"/></symbol>
+    <symbol id="i-about" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.1"/></symbol>
+    <symbol id="i-account" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.9-3.6 4-5.5 7.5-5.5s6.6 1.9 7.5 5.5"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.3"/><path d="M3 19.5c.7-3.2 3.1-5 6-5s5.3 1.8 6 5M15.5 5.4a3.3 3.3 0 0 1 0 6.2M17.5 14.8c1.8.6 3 2.1 3.5 4.7"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="M4.5 10v9a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-9M3.5 9.5 5.3 4.5h13.4l1.8 5a2.5 2.5 0 0 1-4.25 1.6A2.5 2.5 0 0 1 12 11a2.5 2.5 0 0 1-4.25 1.1A2.5 2.5 0 0 1 3.5 9.5ZM10 20v-4.5h4V20"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M10 9.5V20"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.4 1.6-1.4h2.1A4 4 0 0 0 20.5 11 8 8 0 0 0 12 3.5Z"/><circle cx="7.8" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="7.8" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="8" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="m12.6 12.9 3.4-3.9"/><circle cx="12" cy="13.6" r="1.3"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8Z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m20.5 16-4.5-4.5L6 19.5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15Z"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1 1 0 0 1 0 1.4l-7.4 7.4a1 1 0 0 1-1.4 0Z"/><circle cx="8" cy="8" r="1.3"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20 11.5-7.6 7.6a5 5 0 0 1-7.1-7.1l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4"/><path d="M10.3 12.7 21 2M15 5l3 3M18 2l3 3"/></symbol>
+</svg>
 <script>
-const CURRENT_USER={id:{{user.id}},username:"{{user.username}}",display_name:"{{user.display_name}}",role:"{{user.role}}",must_change_password:{{user.must_change_password|default(0)}}};
+const CURRENT_USER={id:{{user.id}},username:{{user.username|tojson}},display_name:{{(user.display_name or '')|tojson}},role:{{user.role|tojson}},must_change_password:{{user.must_change_password|default(0)}}};
 const USER_PERMS={{perms|tojson}};
 const APP_VERSION="{{version}}";
 </script>
 
+<div class="shell">
 <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header"><div class="logo"><img src="/static/garage-logbook_logo.svg" alt="" width="32" height="32"><span>Garage Logbook</span></div></div>
-    <nav class="sidebar-nav">
-        <button class="nav-btn active" data-view="dashboard" onclick="switchView('dashboard')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
-        <button class="nav-btn" data-view="garage" onclick="switchView('garage')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>My Garage</button>
-        <div class="sidebar-cars" id="sidebarCars"></div>
-    </nav>
-    <div class="sidebar-footer">
-        <div class="sidebar-version" id="sidebarVersion"></div>
+    <div class="sidebar-head">
+        <a class="brand" href="#dashboard"><img src="/static/garage-logbook_logo.svg" alt=""><span class="wordmark">Garage Logbook</span></a>
+        <button class="iconbtn sidebar-close" onclick="toggleSidebar(false)" aria-label="Close menu">{{ i('close') }}</button>
     </div>
-    <div class="sidebar-user">
-        <div class="user-info"><div class="user-avatar" id="userAvatar"></div><div class="user-details"><span class="user-name" id="userName"></span><span class="user-role" id="userRole"></span></div></div>
-        <div class="user-actions">
-            <button class="btn btn-sm btn-ghost" onclick="openModal('settingsModal')" title="Settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
-            <button class="btn btn-sm btn-ghost" onclick="doLogout()" title="Sign out"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+    <div class="sidebar-scroll">
+        <nav class="nav-primary" aria-label="Pages">
+            <a class="navitem" data-view="dashboard" href="#dashboard">{{ i('dashboard') }}<span>Dashboard</span></a>
+            <a class="navitem" data-view="garage" href="#garage">{{ i('garage') }}<span>My Garage</span><span class="count" id="navCarCount"></span></a>
+        </nav>
+        <div class="sidebar-label">
+            <span>Vehicles</span>
+            <button class="iconbtn iconbtn--sm perm-can_add_cars" onclick="openCarModal()" aria-label="Add vehicle" title="Add vehicle">{{ i('plus') }}</button>
         </div>
+        <ul class="sidelist" id="sidebarCars"></ul>
+    </div>
+    <div class="sidebar-foot">
+        <button type="button" class="user" onclick="openSettings('account')" title="Account settings">
+            <span class="avatar" id="userAvatar"></span>
+            <span class="user-meta"><span class="user-name" id="userName"></span><span class="user-role" id="userRole"></span></span>
+        </button>
+        <button class="iconbtn" onclick="toggleTheme()" aria-label="Switch theme" title="Switch theme">{{ i('sun', 'icon-sun') }}{{ i('moon', 'icon-moon') }}</button>
+        <button class="iconbtn" onclick="openSettings()" aria-label="Settings" title="Settings">{{ i('settings') }}</button>
+        <button class="iconbtn" onclick="doLogout()" aria-label="Sign out" title="Sign out">{{ i('sign-out') }}</button>
     </div>
 </aside>
+<div class="scrim" id="scrim" hidden onclick="toggleSidebar(false)"></div>
 
-<header class="mobile-header">
-    <button class="hamburger" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="mobile-title">Garage Logbook</span>
-</header>
+<div class="content">
+    <header class="topbar">
+        <button class="iconbtn topbar-menu" onclick="toggleSidebar(true)" aria-label="Open menu">{{ i('menu') }}</button>
+        <h1 class="context-title" id="contextTitle">Dashboard</h1>
 
-<main class="main-content">
-    <!-- Dashboard -->
-    <section id="view-dashboard" class="view active">
-        <div class="view-header"><h1>Dashboard</h1></div>
-        <div class="stats-grid" id="statsGrid">
-            <div class="stat-card clickable" onclick="switchView('garage')"><div class="stat-icon blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17h14M5 17a2 2 0 01-2-2V7a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="16.5" cy="17" r="2.5"/></svg></div><div class="stat-info"><span class="stat-value" id="statCars">0</span><span class="stat-label">Vehicles</span></div></div>
-            <div class="stat-card"><div class="stat-icon amber"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg></div><div class="stat-info"><span class="stat-value" id="statMaintenance">0</span><span class="stat-label">Service Records</span></div></div>
-            <div class="stat-card"><div class="stat-icon green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div><div class="stat-info"><span class="stat-value" id="statCost">$0</span><span class="stat-label">Total Spent</span></div></div>
-            <div class="stat-card clickable" onclick="document.getElementById('upcomingBlock').scrollIntoView({behavior:'smooth'})"><div class="stat-icon red"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-info"><span class="stat-value" id="statDue">0</span><span class="stat-label">Service Due</span></div></div>
-        </div>
-        <div class="section-block" id="upcomingBlock"><h2 class="section-title">Upcoming Service</h2><div id="upcomingList" class="reminders-list"><p class="empty-text">No reminders yet.</p></div></div>
-        <div class="section-block"><h2 class="section-title">Recent Activity</h2><div id="recentActivity" class="recent-list"><p class="empty-text">No records yet.</p></div></div>
-    </section>
-
-    <!-- Garage -->
-    <section id="view-garage" class="view">
-        <div class="view-header">
-            <h1>My Garage</h1>
-            <div class="view-header-actions">
-                <div class="search-box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="carSearch" placeholder="Search…" oninput="debouncedSearchCars()"></div>
-                <button class="btn btn-primary perm-can_add_cars" onclick="openModal('addCarModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Vehicle</button>
+        <div class="topbar-actions" data-for="dashboard">
+            <div class="menu" id="rangeMenu">
+                <button class="menubtn" aria-haspopup="true" aria-expanded="false">{{ i('calendar') }}<span id="rangeLabel">All time</span>{{ i('chevron-down', 'chev') }}</button>
+                <div class="menupop" role="menu" hidden>
+                    <p class="menupop-head">Totals cover</p>
+                    <button class="menuopt" role="menuitem" data-range="all"><span>All time</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" role="menuitem" data-range="year"><span>This year</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" role="menuitem" data-range="month"><span>This month</span>{{ i('tick', 'tick') }}</button>
+                </div>
             </div>
+            <button class="btn btn--primary perm-can_add_records" id="dashAddRecord" onclick="openRecordPanel()" title="Add a service record">{{ i('plus') }}<span class="btn-label">Add record</span></button>
         </div>
-        <div id="carGrid" class="car-grid"><p class="empty-text">No vehicles yet.</p></div>
-    </section>
 
-    <!-- Car Detail -->
-    <section id="view-car-detail" class="view">
-        <div class="view-header">
-            <button class="btn btn-ghost" onclick="switchView('garage')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Back</button>
-            <div class="car-detail-title" id="carDetailTitle"></div>
-            <div class="view-header-actions">
-                <button class="btn btn-ghost perm-can_import" onclick="openImportForCar()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import CSV</button>
-                <button class="btn btn-ghost perm-can_export" onclick="exportCarCSV()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export All Records</button>
-                <button class="btn btn-primary perm-can_add_records" onclick="openAddMaintenanceModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Record</button>
-            </div>
+        <div class="topbar-actions" data-for="garage">
+            <label class="search">{{ i('search') }}<input type="search" id="carSearch" placeholder="Search vehicles" aria-label="Search vehicles" oninput="debouncedSearchCars()"><kbd>/</kbd></label>
+            <button class="btn btn--primary perm-can_add_cars" onclick="openCarModal()">{{ i('plus') }}<span class="btn-label">Add vehicle</span></button>
         </div>
-        <div class="car-detail-hero" id="carDetailHero"></div>
-        <div class="section-block reminders-block">
-            <div class="reminders-header">
-                <h2 class="section-title">Service Reminders</h2>
-                <button class="btn btn-sm btn-ghost perm-can_add_records" onclick="openAddReminderModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Reminder</button>
-            </div>
-            <div id="remindersList" class="reminders-list"></div>
-        </div>
-        <div class="maintenance-toolbar">
-            <div class="search-box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="maintSearch" placeholder="Search records…" oninput="debouncedSearchMaintenance()"></div>
-            <select id="maintSort" class="sort-select" onchange="loadMaintenance()"><option value="date_desc">Newest</option><option value="date_asc">Oldest</option><option value="cost_desc">Cost ↓</option><option value="cost_asc">Cost ↑</option><option value="odo_desc">Mileage ↓</option></select>
-        </div>
-        <div id="maintenanceList" class="maintenance-list"></div>
-    </section>
-</main>
 
-<!-- ══ Settings Modal ═══════════════════════ -->
-<div class="modal-overlay" id="settingsModal"><div class="modal modal-lg">
-    <div class="modal-header"><h2>Settings</h2><button class="modal-close" onclick="closeModal('settingsModal')">&times;</button></div>
-    <div class="settings-tabs-wrap">
-        <div class="settings-tabs">
-            <button class="settings-tab active" onclick="switchSettingsTab('dashboard')">Dashboard</button>
-            <button class="settings-tab" onclick="switchSettingsTab('appearance')">Appearance</button>
-            <button class="settings-tab" onclick="switchSettingsTab('vendors')">Vendors</button>
-            <button class="settings-tab" onclick="switchSettingsTab('account')">Account</button>
-            <button class="settings-tab admin-only" onclick="switchSettingsTab('users')">Users</button>
-            <button class="settings-tab perm-can_import" onclick="switchSettingsTab('import')">Import CSV</button>
-            <button class="settings-tab" onclick="switchSettingsTab('about')">About</button>
-        </div>
-        <!-- Dashboard Tab -->
-        <div class="settings-tab-content active" id="settingsTab-dashboard"><div class="settings-grid">
-            <div class="setting-row"><label>Stats Time Range</label><select id="settingRange" onchange="saveSettingsDebounced()"><option value="all">All Time</option><option value="year">This Year</option><option value="month">This Month</option></select></div>
-            <div class="setting-row"><label>Show Vehicles</label><label class="toggle"><input type="checkbox" id="settingShowVehicles" checked onchange="saveSettingsDebounced()"><span class="toggle-slider"></span></label></div>
-            <div class="setting-row"><label>Show Records</label><label class="toggle"><input type="checkbox" id="settingShowRecords" checked onchange="saveSettingsDebounced()"><span class="toggle-slider"></span></label></div>
-            <div class="setting-row"><label>Show Total Spent</label><label class="toggle"><input type="checkbox" id="settingShowCost" checked onchange="saveSettingsDebounced()"><span class="toggle-slider"></span></label></div>
-            <div class="setting-row"><label>Show Service Due</label><label class="toggle"><input type="checkbox" id="settingShowDue" checked onchange="saveSettingsDebounced()"><span class="toggle-slider"></span></label></div>
-        </div></div>
-        <!-- Appearance Tab -->
-        <div class="settings-tab-content" id="settingsTab-appearance"><div class="settings-grid">
-            <div class="setting-row"><label>Dark Mode</label><label class="toggle"><input type="checkbox" id="settingThemeDark" checked onchange="saveSettingsDebounced()"><span class="toggle-slider"></span></label></div>
-        </div></div>
-        <!-- Vendors Tab -->
-        <div class="settings-tab-content" id="settingsTab-vendors">
-            <p class="settings-hint">Saved vendors appear in the Vendor field when adding or editing a record. Renaming or removing one here does not change existing records. Names that differ only in capitals, spacing or punctuation count as the same vendor.</p>
-            <form class="vendor-add" onsubmit="settingsAddVendor(event)"><input type="text" id="newVendorName" maxlength="100" placeholder="Vendor name" autocomplete="off"><button type="submit" class="btn btn-primary btn-sm">Add</button></form>
-            <div id="vendorsList" class="vendors-list"></div>
-        </div>
-        <!-- Account Tab -->
-        <div class="settings-tab-content" id="settingsTab-account"><div class="form-grid">
-            <div class="form-group full-width"><label>Current Password</label><input type="password" id="currentPw" autocomplete="current-password"></div>
-            <div class="form-group full-width"><label>New Password</label><input type="password" id="newPw" placeholder="Min 4 chars" autocomplete="new-password"></div>
-            <div class="form-group full-width"><label>Confirm New Password</label><input type="password" id="confirmPw" autocomplete="new-password"></div>
-            <div class="form-group full-width account-actions"><button class="btn btn-primary" onclick="changePassword()">Update Password</button></div>
-        </div></div>
-        <!-- Users Tab -->
-        <div class="settings-tab-content" id="settingsTab-users">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                <strong style="font-size:0.9rem">User Management</strong>
-                <button class="btn btn-primary btn-sm" onclick="openModal('addUserModal')">Add User</button>
+        <div class="topbar-actions" data-for="car-detail">
+            <label class="search">{{ i('search') }}<input type="search" id="maintSearch" placeholder="Search records" aria-label="Search records" oninput="debouncedSearchMaintenance()"><kbd>/</kbd></label>
+            <div class="menu" id="sortMenu">
+                <button class="menubtn" aria-haspopup="true" aria-expanded="false" title="Sort records">{{ i('sort') }}<span class="btn-label" id="sortLabel">Newest</span>{{ i('chevron-down', 'chev') }}</button>
+                <div class="menupop" role="menu" hidden>
+                    <p class="menupop-head">Sort records by</p>
+                    <button class="menuopt" data-sort="date_desc"><span>Newest</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" data-sort="date_asc"><span>Oldest</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" data-sort="cost_desc"><span>Highest cost</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" data-sort="cost_asc"><span>Lowest cost</span>{{ i('tick', 'tick') }}</button>
+                    <button class="menuopt" data-sort="odo_desc"><span>Highest mileage</span>{{ i('tick', 'tick') }}</button>
+                </div>
             </div>
-            <div id="usersList" class="users-list"></div>
+            <div class="menu" id="carMenu">
+                <button class="menubtn menubtn--icon" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">{{ i('more') }}</button>
+                <div class="menupop" role="menu" hidden>
+                    <button class="menuopt perm-can_edit_cars" onclick="openCarModal(currentCarId)">{{ i('edit') }}<span>Edit vehicle</span></button>
+                    <button class="menuopt perm-can_add_records" onclick="openReminderModal()">{{ i('bell') }}<span>Add reminder</span></button>
+                    <div class="menusep perm-can_import"></div>
+                    <button class="menuopt perm-can_import" onclick="openImportForCar()">{{ i('upload') }}<span>Import records from CSV</span></button>
+                    <button class="menuopt perm-can_export" onclick="exportCarCSV()">{{ i('download') }}<span>Export records as CSV</span></button>
+                    <div class="menusep perm-can_delete_cars"></div>
+                    <button class="menuopt menuopt--danger perm-can_delete_cars" onclick="deleteCurrentCar()">{{ i('delete') }}<span>Delete vehicle</span></button>
+                </div>
+            </div>
+            <button class="btn btn--primary perm-can_add_records" onclick="openRecordPanel()">{{ i('plus') }}<span class="btn-label">Add record</span></button>
         </div>
-        <!-- Import Tab -->
-        <div class="settings-tab-content" id="settingsTab-import">
-            <div class="import-steps"><div class="import-step active" id="importStep1Indicator"><div class="step-num">1</div><span>Upload</span></div><div class="import-step-divider"></div><div class="import-step" id="importStep2Indicator"><div class="step-num">2</div><span>Map</span></div><div class="import-step-divider"></div><div class="import-step" id="importStep3Indicator"><div class="step-num">3</div><span>Preview</span></div><div class="import-step-divider"></div><div class="import-step" id="importStep4Indicator"><div class="step-num">4</div><span>Import</span></div></div>
-            <div id="importStep1"><div class="import-form-row"><div class="form-group" style="flex:1"><label>Target Vehicle</label><select id="importCarSelect" class="import-select"><option value="">— Select —</option></select></div></div><div class="import-form-row"><div class="form-group" style="flex:1"><label>CSV File</label><div class="file-upload"><input type="file" id="csvFileInput" accept=".csv" onchange="onCsvFileSelected(this)"><div class="file-upload-label" id="csvFileLabel"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Select CSV</span></div></div><div class="csv-file-info" id="csvFileInfo" style="display:none"></div></div></div><div class="import-actions"><button class="btn btn-primary" id="importNextStep1" onclick="importGoToMapping()" disabled>Next →</button></div></div>
-            <div id="importStep2" style="display:none"><div class="mapping-grid" id="mappingGrid"></div><div class="import-actions"><button class="btn btn-ghost" onclick="importGoToStep(1)">← Back</button><button class="btn btn-primary" id="importNextStep2" onclick="importRunDryRun()">Preview →</button></div></div>
-            <div id="importStep3" style="display:none"><div class="import-summary" id="importSummary"></div><div class="import-errors" id="importErrors" style="display:none"><div class="import-errors-header" onclick="document.getElementById('importErrorsList').classList.toggle('collapsed')"><span id="importErrorCount">0</span><span style="color:var(--text-muted);font-size:0.7rem;margin-left:auto">toggle</span></div><div id="importErrorsList" class="import-errors-list"></div></div><div class="import-preview-table-wrap"><table class="import-preview-table"><thead><tr id="importPreviewHead"></tr></thead><tbody id="importPreviewBody"></tbody></table></div><div class="import-actions"><button class="btn btn-ghost" onclick="importGoToStep(2)">← Back</button><button class="btn btn-primary" id="importCommitBtn" onclick="importCommit()">Import</button></div></div>
-            <div id="importStep4" style="display:none"><div class="import-done"><div class="import-done-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="16 9 10.5 14.5 8 12"/></svg></div><h2>Done</h2><p id="importDoneMsg" class="import-done-msg"></p><div class="import-actions" style="justify-content:center"><button class="btn btn-ghost" onclick="importReset()">Again</button><button class="btn btn-primary" onclick="importViewCar()">View</button></div></div></div>
-        </div>
-        <!-- About Tab -->
-        <div class="settings-tab-content" id="settingsTab-about">
-            <div class="about-section">
-                <div class="about-header">
-                    <img src="/static/garage-logbook_logo.svg" alt="" class="about-logo">
-                    <div class="about-title-block">
-                        <h3 class="about-app-name">Garage Logbook</h3>
-                        <span class="about-version">v{{version}}</span>
+    </header>
+
+    <main class="page">
+        <!-- Dashboard -->
+        <section id="view-dashboard" class="view">
+            <div class="dash" id="dash">
+                <div class="panel kpis" id="kpis"></div>
+                <div class="dash-row dash-row--fill">
+                    <section class="panel panel--chart" aria-labelledby="spendTitle">
+                        <div class="panel-head">
+                            <div>
+                                <h2 class="section-title" id="spendTitle">Spending, last 12 months</h2>
+                                <div class="chart-sub" id="spendSub"></div>
+                            </div>
+                            <div class="chart-total" id="spendTotal"></div>
+                        </div>
+                        <div class="panel-body"><div class="chart" id="spendChart"></div></div>
+                    </section>
+                    <section class="panel" aria-labelledby="attnTitle" id="upcomingBlock">
+                        <div class="panel-head" style="padding-bottom:10px">
+                            <h2 class="section-title" id="attnTitle">Coming up</h2>
+                            <span class="section-sub" id="attnCount"></span>
+                        </div>
+                        <div class="attn" id="upcomingList"></div>
+                    </section>
+                </div>
+                <div class="dash-row">
+                    <section class="panel" aria-labelledby="recentTitle">
+                        <div class="panel-head" style="padding-bottom:6px"><h2 class="section-title" id="recentTitle">Recent service</h2></div>
+                        <div class="rtable" id="recentActivity"></div>
+                    </section>
+                    <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+                        <section class="panel" aria-labelledby="typeTitle">
+                            <div class="panel-head"><h2 class="section-title" id="typeTitle">Spending by type</h2><span class="section-sub" id="typeRange"></span></div>
+                            <div class="panel-body" id="typeBreakdown"></div>
+                        </section>
+                        <section class="panel" aria-labelledby="vehTitle">
+                            <div class="panel-head" style="padding-bottom:6px"><h2 class="section-title" id="vehTitle">Vehicles</h2><a class="section-link" href="#garage">My Garage</a></div>
+                            <div id="dashVehicles"></div>
+                        </section>
                     </div>
                 </div>
-                <p class="about-desc">A self-hosted vehicle maintenance tracker. Keep detailed records of every repair, service, upgrade, and inspection across all your vehicles.</p>
-                <div class="about-links">
-                    <a href="https://hyprlab.co" target="_blank" rel="noopener">hyprlab.co</a>
-                    <a href="https://github.com/hyprlab/garage-logbook" target="_blank" rel="noopener">GitHub</a>
-                    <a href="https://hub.docker.com/r/hyprlab/garage-logbook" target="_blank" rel="noopener">Docker Hub</a>
-                    <a href="https://github.com/hyprlab/garage-logbook/blob/main/LICENSE" target="_blank" rel="noopener">License (AGPL-3.0)</a>
-                    <a href="mailto:hyprlab@proton.me">hyprlab@proton.me</a>
-                </div>
             </div>
-            <div class="changelog">
-                <h4 class="changelog-title">Changelog</h4>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.4.0</div>
-                    <ul>
-                        <li>New: saved vendors. The Vendor field on a service record lists them as you type, and a vendor not on the list can be added from the field without leaving the record</li>
-                        <li>New: a Vendors tab in Settings to add, rename and remove saved vendors</li>
-                        <li>Vendors already used on your records are added to the list on the first start after updating. Spellings that differ only in capitals, spacing or punctuation become one vendor</li>
-                        <li>New: an IMAGE_TAG setting picks the release channel: stable (the default), beta, or a fixed version</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.3.2</div>
-                    <ul>
-                        <li>New: service reminders can count down time instead of mileage. A toggle picks which, so "brake fluid every 24 months" works alongside "oil every 5,000 miles"</li>
-                        <li>Time reminders anchor to the date of the last matching service record, the same way mileage ones anchor to its odometer</li>
-                        <li>Adding a service record now lists that vehicle's counters so you can tick which ones to restart from its mileage or date</li>
-                        <li>Upcoming Service now sorts mileage and time reminders together by how much of the interval is left</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.3.1</div>
-                    <ul>
-                        <li>Vehicles now appear in the sidebar under My Garage, so you can jump straight to one</li>
-                        <li>Vehicle cards show upcoming service reminders with their mileage countdown</li>
-                        <li>Fixed form fields overflowing and being cut off on the right in modals</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.3.0</div>
-                    <ul>
-                        <li>New: mileage-based service reminders. Set a service interval like "every 30,000 miles" and see what is due</li>
-                        <li>Reminders anchor to your service records, so logging the work rolls the next due mileage forward automatically</li>
-                        <li>Dashboard now shows a Service Due count and an Upcoming Service list across all vehicles</li>
-                        <li>Change Password moved into Settings under a new Account tab, with a confirmation field</li>
-                        <li>Sidebar footer simplified: settings is now a gear icon beside sign out</li>
-                        <li>Fixed a crash on first launch when running with multiple workers</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.2.2</div>
-                    <ul>
-                        <li>Fixed error when saving service records on installs upgraded from earlier versions</li>
-                        <li>Repaired maintenance record attachments link broken by an older database migration</li>
-                        <li>A failed save no longer locks the database for subsequent saves</li>
-                        <li>Database migration problems are now logged instead of silently ignored</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.2.1</div>
-                    <ul>
-                        <li>Rebranded from viibeware Corp. to Hyprlab</li>
-                        <li>New Hyprlab logo; branding links now point to hyprlab.co</li>
-                        <li>Project moved to github.com/hyprlab and Docker Hub hyprlab/garage-logbook</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.2.0</div>
-                    <ul>
-                        <li>Now open source under the GNU Affero General Public License v3.0</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.13</div>
-                    <ul>
-                        <li>Settings link in sidebar footer restyled as a centered, bordered button</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.12</div>
-                    <ul>
-                        <li>New app logo and favicon</li>
-                        <li>Added About section with changelog and support contact</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.11</div>
-                    <ul>
-                        <li>Dark/light theme toggle switch replaces dropdown</li>
-                        <li>Settings modal fixed height to prevent layout shifting between tabs</li>
-                        <li>Settings button styled consistently with sidebar nav items</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.10</div>
-                    <ul>
-                        <li>Fixed database migration for multi-user support on existing installs</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.9</div>
-                    <ul>
-                        <li>Multi-user support with per-user data isolation</li>
-                        <li>Admins can view all users' vehicles and records with owner labels</li>
-                        <li>Granular permission toggles for editor role</li>
-                        <li>Removed viewer role in favor of configurable editor permissions</li>
-                        <li>Light and dark theme support</li>
-                        <li>Settings moved to a modal with blur backdrop</li>
-                        <li>Add Vehicle button moved into My Garage view</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.8</div>
-                    <ul>
-                        <li>PDF document upload support for maintenance records (receipts, invoices)</li>
-                        <li>Documents display as download links in record detail view</li>
-                        <li>Error handlers for 413 and 500 responses return JSON for API routes</li>
-                        <li>Resilient JS error handling for non-JSON server responses</li>
-                        <li>Gunicorn error logging and extended timeout</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.7</div>
-                    <ul>
-                        <li>Environment configuration via .env file</li>
-                        <li>Configurable port via APP_PORT variable</li>
-                        <li>Added .env.example template</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.6</div>
-                    <ul>
-                        <li>Renamed project from car-maintenance-tracker to garage-logbook</li>
-                        <li>New GL logo and favicon</li>
-                        <li>First-login password change prompt for default admin account</li>
-                        <li>Import CSV and Users moved from sidebar into Settings tabs</li>
-                        <li>Import button added to car detail view header</li>
-                        <li>Export button renamed to "Export All Records"</li>
-                        <li>Hyprlab branding links to hyprlab.co</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.5</div>
-                    <ul>
-                        <li>Docker Compose packaging with named volume for persistent data</li>
-                        <li>Environment-configurable SECRET_KEY, DATABASE_PATH, and UPLOAD_FOLDER</li>
-                        <li>Upload serving route for Docker volume compatibility</li>
-                        <li>Database initialization runs at module level for gunicorn compatibility</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.4</div>
-                    <ul>
-                        <li>Inspection maintenance type added</li>
-                        <li>Record duplication feature</li>
-                        <li>"Parts Vendor" renamed to "Vendor"</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.3</div>
-                    <ul>
-                        <li>Authentication system with login/logout</li>
-                        <li>Role-based access control (admin, editor, viewer)</li>
-                        <li>Hyprlab branding</li>
-                        <li>Base font size set to 1.2rem</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.2</div>
-                    <ul>
-                        <li>AJAX-powered search across vehicles and maintenance records</li>
-                        <li>Sort options for maintenance records</li>
-                        <li>CSV export for maintenance records</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.1</div>
-                    <ul>
-                        <li>Maintenance record image gallery with lightbox viewer</li>
-                        <li>Dashboard with stats cards and recent activity</li>
-                        <li>Per-user settings for dashboard customization</li>
-                    </ul>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-version">0.1.0</div>
-                    <ul>
-                        <li>Initial release</li>
-                        <li>Vehicle management (add, edit, delete with photo upload)</li>
-                        <li>Maintenance record tracking with cost, mileage, vendor, and notes</li>
-                        <li>Dark theme UI with DM Sans typography</li>
-                        <li>SQLite database with WAL mode</li>
-                        <li>Mobile responsive layout</li>
-                    </ul>
-                </div>
+            <div class="empty empty--page" id="dashEmpty" hidden>
+                <img src="/static/garage-logbook_logo.svg" alt="">
+                <h2 class="empty-title">Start your logbook</h2>
+                <p class="empty-text">Add a vehicle, then log each service, repair and upgrade against it. Totals, reminders and spending show up here as records come in.</p>
+                <button class="btn btn--primary perm-can_add_cars" onclick="openCarModal()">{{ i('plus') }}Add a vehicle</button>
             </div>
+        </section>
+
+        <!-- Garage -->
+        <section id="view-garage" class="view">
+            <div id="carGrid" class="fleet"></div>
+        </section>
+
+        <!-- Vehicle -->
+        <section id="view-car-detail" class="view">
+            <div class="car-hero" id="carDetailHero"></div>
+            <div class="car-cols">
+                <section class="panel records-panel" aria-labelledby="recordsTitle">
+                    <div class="panel-head" style="padding-bottom:6px"><h2 class="section-title" id="recordsTitle">Service records</h2><span class="section-sub" id="recordsCount"></span></div>
+                    <div class="rtable" id="maintenanceList"></div>
+                </section>
+                <section class="panel" aria-labelledby="remTitle">
+                    <div class="panel-head" style="padding-bottom:6px">
+                        <h2 class="section-title" id="remTitle">Service reminders</h2>
+                        <button class="btn btn--ghost btn--sm perm-can_add_records" onclick="openReminderModal()">{{ i('plus') }}Add</button>
+                    </div>
+                    <div class="rems" id="remindersList"></div>
+                </section>
+            </div>
+        </section>
+    </main>
+</div>
+</div>
+
+<!-- ————— Settings ————— -->
+{% set settings_sections = [
+    ('dashboard', 'Dashboard', 'Preferences', 'layout', ''),
+    ('appearance', 'Appearance', 'Preferences', 'palette', ''),
+    ('vendors', 'Vendors', 'Records', 'store', ''),
+    ('import', 'Import CSV', 'Records', 'upload', 'perm-can_import'),
+    ('account', 'Account', 'Account', 'account', ''),
+    ('users', 'Users', 'Account', 'users', 'admin-only'),
+] %}
+<div class="overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+<div class="modal settings-modal">
+    <div class="settings">
+        <aside class="settings-nav">
+            <div class="settings-nav-head">
+                <h2 class="settings-nav-title" id="settingsTitle">Settings</h2>
+                <button class="iconbtn settings-nav-close" onclick="closeModal('settingsModal')" aria-label="Close">{{ i('close') }}</button>
+            </div>
+            <div class="settings-nav-list" role="tablist" aria-orientation="vertical">
+                {% set ns = namespace(group=None) %}
+                {% for id, label, group, icon_name, cls in settings_sections %}
+                    {% if group != ns.group %}<p class="settings-nav-label">{{ group }}</p>{% set ns.group = group %}{% endif %}
+                    <button type="button" class="settings-navitem {{ cls }}" role="tab" data-section="{{ id }}" onclick="switchSettingsTab('{{ id }}')">{{ i(icon_name) }}<span>{{ label }}</span>{{ i('chevron-right', 'chev') }}</button>
+                {% endfor %}
+            </div>
+            <div class="settings-nav-foot">
+                <button type="button" class="settings-navitem" role="tab" data-section="about" onclick="switchSettingsTab('about')">{{ i('about') }}<span>About</span>{{ i('chevron-right', 'chev') }}</button>
+                <p class="settings-nav-version">Garage Logbook {{ version }}</p>
+            </div>
+        </aside>
+        <div class="settings-main">
+            <header class="settings-head">
+                <button class="iconbtn settings-back" onclick="settingsBack()" aria-label="All settings">{{ i('back') }}</button>
+                <h3 class="settings-head-title" id="settingsSectionTitle">Dashboard</h3>
+                <button class="iconbtn" onclick="closeModal('settingsModal')" aria-label="Close" title="Close (Esc)">{{ i('close') }}</button>
+            </header>
+
+            <section class="settings-pane" data-pane="dashboard" data-title="Dashboard">
+                <p class="pane-intro">Choose which totals appear in the strip at the top of the dashboard. The period they cover is set from the dashboard's top bar.</p>
+                <div class="rows">
+                    <label class="row-set"><span class="row-set-text"><span class="row-set-title">Spent</span><span class="row-set-sub">Total cost of service records in the period</span></span><span class="switch"><input type="checkbox" id="settingShowCost" onchange="saveSettingsDebounced()"><span></span></span></label>
+                    <label class="row-set"><span class="row-set-text"><span class="row-set-title">Service records</span><span class="row-set-sub">How many records were logged in the period</span></span><span class="switch"><input type="checkbox" id="settingShowRecords" onchange="saveSettingsDebounced()"><span></span></span></label>
+                    <label class="row-set"><span class="row-set-text"><span class="row-set-title">Vehicles</span><span class="row-set-sub">How many vehicles are in the garage</span></span><span class="switch"><input type="checkbox" id="settingShowVehicles" onchange="saveSettingsDebounced()"><span></span></span></label>
+                    <label class="row-set"><span class="row-set-text"><span class="row-set-title">Service due</span><span class="row-set-sub">Reminders that are overdue or coming up soon</span></span><span class="switch"><input type="checkbox" id="settingShowDue" onchange="saveSettingsDebounced()"><span></span></span></label>
+                </div>
+            </section>
+
+            <section class="settings-pane" data-pane="appearance" data-title="Appearance">
+                <div class="pane-group-title">Theme</div>
+                <div class="theme-picker" role="radiogroup" aria-label="Theme">
+                    <label class="theme-opt"><input type="radio" name="theme" value="light" onchange="setTheme(this.value)"><span class="theme-card"><span class="theme-swatch theme-swatch--light"><i></i><i></i></span><span>Light</span></span></label>
+                    <label class="theme-opt"><input type="radio" name="theme" value="dark" onchange="setTheme(this.value)"><span class="theme-card"><span class="theme-swatch theme-swatch--dark"><i></i><i></i></span><span>Dark</span></span></label>
+                    <label class="theme-opt"><input type="radio" name="theme" value="system" onchange="setTheme(this.value)"><span class="theme-card"><span class="theme-swatch theme-swatch--system"></span><span>System</span></span></label>
+                </div>
+            </section>
+
+            <section class="settings-pane" data-pane="vendors" data-title="Vendors">
+                <p class="pane-intro">Saved vendors appear in the Vendor field when adding or editing a record. Renaming or removing one here does not change existing records. Names that differ only in capitals, spacing or punctuation count as the same vendor.</p>
+                <form class="inline-add" onsubmit="settingsAddVendor(event)"><input class="input" type="text" id="newVendorName" maxlength="100" placeholder="Vendor name" autocomplete="off" aria-label="Vendor name"><button type="submit" class="btn btn--primary">{{ i('plus') }}Add</button></form>
+                <div id="vendorsList" class="manage-list"></div>
+            </section>
+
+            <section class="settings-pane" data-pane="import" data-title="Import CSV">
+                <div class="steps"><div class="step active" id="importStep1Indicator"><span class="step-num">1</span><span>Upload</span></div><span class="step-line"></span><div class="step" id="importStep2Indicator"><span class="step-num">2</span><span>Map columns</span></div><span class="step-line"></span><div class="step" id="importStep3Indicator"><span class="step-num">3</span><span>Preview</span></div><span class="step-line"></span><div class="step" id="importStep4Indicator"><span class="step-num">4</span><span>Done</span></div></div>
+                <div id="importStep1">
+                    <div class="stack" style="max-width:none">
+                        <label class="field"><span class="field-label">Vehicle</span><select id="importCarSelect"><option value="">Choose a vehicle</option></select></label>
+                        <div class="field"><span class="field-label">CSV file</span>
+                            <div class="drop"><input type="file" id="csvFileInput" accept=".csv" onchange="onCsvFileSelected(this)"><div class="drop-face" id="csvFileLabel">{{ i('file') }}<span><b>Choose a CSV file</b><small>One row per service record, with a header row</small></span></div></div>
+                            <div class="csv-file-info" id="csvFileInfo" style="display:none"></div>
+                        </div>
+                    </div>
+                    <div class="import-actions"><button class="btn btn--primary" id="importNextStep1" onclick="importGoToMapping()" disabled>Map columns</button></div>
+                </div>
+                <div id="importStep2" style="display:none">
+                    <p class="pane-intro">Match each field to a column in your file. Title and service date are required.</p>
+                    <div class="mapping-grid" id="mappingGrid"></div>
+                    <div class="import-actions"><button class="btn btn--ghost" onclick="importGoToStep(1)">Back</button><button class="btn btn--primary" id="importNextStep2" onclick="importRunDryRun()">Preview import</button></div>
+                </div>
+                <div id="importStep3" style="display:none">
+                    <div class="import-summary" id="importSummary"></div>
+                    <div class="import-errors" id="importErrors" style="display:none"><button class="import-errors-header" onclick="document.getElementById('importErrorsList').classList.toggle('collapsed')"><span id="importErrorCount">0</span><span style="margin-left:auto;font-weight:500">Show or hide</span></button><div id="importErrorsList" class="import-errors-list"></div></div>
+                    <div class="import-preview-table-wrap"><table class="import-preview-table"><thead><tr id="importPreviewHead"></tr></thead><tbody id="importPreviewBody"></tbody></table></div>
+                    <div class="import-actions"><button class="btn btn--ghost" onclick="importGoToStep(2)">Back</button><button class="btn btn--primary" id="importCommitBtn" onclick="importCommit()">Import</button></div>
+                </div>
+                <div id="importStep4" style="display:none">
+                    <div class="import-done">{{ i('done') }}<h3>Import finished</h3><p id="importDoneMsg" class="import-done-msg"></p>
+                        <div class="import-actions"><button class="btn btn--ghost" onclick="importReset()">Import another file</button><button class="btn btn--primary" onclick="importViewCar()">Open vehicle</button></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-pane" data-pane="account" data-title="Account">
+                <div class="profile"><span class="avatar" id="profileAvatar"></span><div><div class="profile-name" id="profileName"></div><div class="profile-sub" id="profileSub"></div></div></div>
+                <div class="pane-group-title">Change password</div>
+                <div class="stack">
+                    <label class="field"><span class="field-label">Current password</span><input type="password" id="currentPw" autocomplete="current-password"></label>
+                    <label class="field"><span class="field-label">New password</span><input type="password" id="newPw" autocomplete="new-password"><span class="field-hint">At least 4 characters.</span></label>
+                    <label class="field"><span class="field-label">Confirm new password</span><input type="password" id="confirmPw" autocomplete="new-password"></label>
+                    <div><button class="btn btn--primary" onclick="changePassword()">Update password</button></div>
+                </div>
+            </section>
+
+            <section class="settings-pane" data-pane="users" data-title="Users">
+                <div class="section-head" style="align-items:center">
+                    <p class="pane-intro" style="margin:0">Admins see every vehicle and manage users. Editors see their own vehicles, with the permissions you choose.</p>
+                    <button class="btn btn--primary btn--sm" onclick="openModal('addUserModal')" style="flex:none">{{ i('plus') }}Add user</button>
+                </div>
+                <div id="usersList" class="manage-list" style="margin-top:14px"></div>
+            </section>
+
+            <section class="settings-pane" data-pane="about" data-title="About">
+                <div class="about-hero">
+                    <canvas class="about-hero-bg" aria-hidden="true"></canvas>
+                    <div class="about-brand">
+                        <img class="about-logo" src="/static/garage-logbook_logo.svg" alt="">
+                        <div class="about-name">Garage Logbook</div>
+                        <div class="about-version">Version {{ version }}</div>
+                        <p class="about-tagline">A self-hosted maintenance log for your vehicles: every repair, service, upgrade and inspection, with reminders for what comes next.</p>
+                        <p class="about-credit">Built by <a class="hyprlab-credit" href="https://hyprlab.co" target="_blank" rel="noopener"><img src="/static/hyprlab_logo.png" alt="">Hyprlab</a></p>
+                        <p class="about-license">Free software under the <a href="https://github.com/hyprlab/garage-logbook/blob/main/LICENSE" target="_blank" rel="noopener">GNU AGPL-3.0</a></p>
+                        <p class="about-links"><a href="https://github.com/hyprlab/garage-logbook" target="_blank" rel="noopener">Source</a><a href="https://hub.docker.com/r/hyprlab/garage-logbook" target="_blank" rel="noopener">Docker Hub</a><a href="mailto:hyprlab@proton.me">Support</a></p>
+                    </div>
+                    <div class="about-stack">
+                        <div class="about-stack-label">Built with</div>
+                        <div class="tech-stack">
+                            {% for name, slug, url in [
+                                ('Python', 'python', 'https://www.python.org/'),
+                                ('Flask', 'flask', 'https://flask.palletsprojects.com/'),
+                                ('Jinja', 'jinja', 'https://jinja.palletsprojects.com/'),
+                                ('SQLite', 'sqlite', 'https://www.sqlite.org/'),
+                                ('Gunicorn', 'gunicorn', 'https://gunicorn.org/'),
+                                ('JavaScript', 'javascript', 'https://developer.mozilla.org/docs/Web/JavaScript'),
+                                ('Docker', 'docker', 'https://www.docker.com/'),
+                            ] %}
+                            <a class="tech-tile" href="{{ url }}" target="_blank" rel="noopener" title="{{ name }}"><span class="tech-icon" style="--icon:url('/static/img/tech/{{ slug }}.svg')"></span><span class="tech-tile-name">{{ name }}</span></a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <details class="about-details" open>
+                    <summary class="about-summary"><h4>Changelog</h4></summary>
+                    <div class="release-list">
+                <div class="changelog-entry">
+                    <div class="changelog-version">Unreleased</div>
+                    <ul>
+                        <li>New: a redesigned dashboard with spending over the last 12 months, spending by type, the reminders coming up next, recent service and every vehicle at a glance</li>
+                        <li>New: a top bar on every page with its title, search and main action; the dashboard's time range is picked there instead of in Settings</li>
+                        <li>New: service records are added and edited in a panel that slides in from the right, and can be logged from the dashboard by choosing the vehicle</li>
+                        <li>New: the theme can follow the system setting, and a theme button sits in the sidebar footer</li>
+                        <li>New: each page has its own address, so reloading or bookmarking keeps your place</li>
+                        <li>Settings opens as a two-pane window with its sections down the side; on phones it opens as a list</li>
+                        <li>The sidebar lists vehicles with their photos and marks the current page with a bar; the version moved to Settings and About</li>
+                        <li>The interface uses Inter throughout and fills the width of the window</li>
+                        <li>Redesigned About section with the tools Garage Logbook is built with</li>
+                    </ul>
+                </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.4.0</div>
+                <ul>
+                    <li>New: saved vendors. The Vendor field on a service record lists them as you type, and a vendor not on the list can be added from the field without leaving the record</li>
+                    <li>New: a Vendors tab in Settings to add, rename and remove saved vendors</li>
+                    <li>Vendors already used on your records are added to the list on the first start after updating. Spellings that differ only in capitals, spacing or punctuation become one vendor</li>
+                    <li>New: an IMAGE_TAG setting picks the release channel: stable (the default), beta, or a fixed version</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.3.2</div>
+                <ul>
+                    <li>New: service reminders can count down time instead of mileage. A toggle picks which, so "brake fluid every 24 months" works alongside "oil every 5,000 miles"</li>
+                    <li>Time reminders anchor to the date of the last matching service record, the same way mileage ones anchor to its odometer</li>
+                    <li>Adding a service record now lists that vehicle's counters so you can tick which ones to restart from its mileage or date</li>
+                    <li>Upcoming Service now sorts mileage and time reminders together by how much of the interval is left</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.3.1</div>
+                <ul>
+                    <li>Vehicles now appear in the sidebar under My Garage, so you can jump straight to one</li>
+                    <li>Vehicle cards show upcoming service reminders with their mileage countdown</li>
+                    <li>Fixed form fields overflowing and being cut off on the right in modals</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.3.0</div>
+                <ul>
+                    <li>New: mileage-based service reminders. Set a service interval like "every 30,000 miles" and see what is due</li>
+                    <li>Reminders anchor to your service records, so logging the work rolls the next due mileage forward automatically</li>
+                    <li>Dashboard now shows a Service Due count and an Upcoming Service list across all vehicles</li>
+                    <li>Change Password moved into Settings under a new Account tab, with a confirmation field</li>
+                    <li>Sidebar footer simplified: settings is now a gear icon beside sign out</li>
+                    <li>Fixed a crash on first launch when running with multiple workers</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.2.2</div>
+                <ul>
+                    <li>Fixed error when saving service records on installs upgraded from earlier versions</li>
+                    <li>Repaired maintenance record attachments link broken by an older database migration</li>
+                    <li>A failed save no longer locks the database for subsequent saves</li>
+                    <li>Database migration problems are now logged instead of silently ignored</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.2.1</div>
+                <ul>
+                    <li>Rebranded from viibeware Corp. to Hyprlab</li>
+                    <li>New Hyprlab logo; branding links now point to hyprlab.co</li>
+                    <li>Project moved to github.com/hyprlab and Docker Hub hyprlab/garage-logbook</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.2.0</div>
+                <ul>
+                    <li>Now open source under the GNU Affero General Public License v3.0</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.13</div>
+                <ul>
+                    <li>Settings link in sidebar footer restyled as a centered, bordered button</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.12</div>
+                <ul>
+                    <li>New app logo and favicon</li>
+                    <li>Added About section with changelog and support contact</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.11</div>
+                <ul>
+                    <li>Dark/light theme toggle switch replaces dropdown</li>
+                    <li>Settings modal fixed height to prevent layout shifting between tabs</li>
+                    <li>Settings button styled consistently with sidebar nav items</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.10</div>
+                <ul>
+                    <li>Fixed database migration for multi-user support on existing installs</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.9</div>
+                <ul>
+                    <li>Multi-user support with per-user data isolation</li>
+                    <li>Admins can view all users' vehicles and records with owner labels</li>
+                    <li>Granular permission toggles for editor role</li>
+                    <li>Removed viewer role in favor of configurable editor permissions</li>
+                    <li>Light and dark theme support</li>
+                    <li>Settings moved to a modal with blur backdrop</li>
+                    <li>Add Vehicle button moved into My Garage view</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.8</div>
+                <ul>
+                    <li>PDF document upload support for maintenance records (receipts, invoices)</li>
+                    <li>Documents display as download links in record detail view</li>
+                    <li>Error handlers for 413 and 500 responses return JSON for API routes</li>
+                    <li>Resilient JS error handling for non-JSON server responses</li>
+                    <li>Gunicorn error logging and extended timeout</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.7</div>
+                <ul>
+                    <li>Environment configuration via .env file</li>
+                    <li>Configurable port via APP_PORT variable</li>
+                    <li>Added .env.example template</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.6</div>
+                <ul>
+                    <li>Renamed project from car-maintenance-tracker to garage-logbook</li>
+                    <li>New GL logo and favicon</li>
+                    <li>First-login password change prompt for default admin account</li>
+                    <li>Import CSV and Users moved from sidebar into Settings tabs</li>
+                    <li>Import button added to car detail view header</li>
+                    <li>Export button renamed to "Export All Records"</li>
+                    <li>Hyprlab branding links to hyprlab.co</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.5</div>
+                <ul>
+                    <li>Docker Compose packaging with named volume for persistent data</li>
+                    <li>Environment-configurable SECRET_KEY, DATABASE_PATH, and UPLOAD_FOLDER</li>
+                    <li>Upload serving route for Docker volume compatibility</li>
+                    <li>Database initialization runs at module level for gunicorn compatibility</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.4</div>
+                <ul>
+                    <li>Inspection maintenance type added</li>
+                    <li>Record duplication feature</li>
+                    <li>"Parts Vendor" renamed to "Vendor"</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.3</div>
+                <ul>
+                    <li>Authentication system with login/logout</li>
+                    <li>Role-based access control (admin, editor, viewer)</li>
+                    <li>Hyprlab branding</li>
+                    <li>Base font size set to 1.2rem</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.2</div>
+                <ul>
+                    <li>AJAX-powered search across vehicles and maintenance records</li>
+                    <li>Sort options for maintenance records</li>
+                    <li>CSV export for maintenance records</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.1</div>
+                <ul>
+                    <li>Maintenance record image gallery with lightbox viewer</li>
+                    <li>Dashboard with stats cards and recent activity</li>
+                    <li>Per-user settings for dashboard customization</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <div class="changelog-version">0.1.0</div>
+                <ul>
+                    <li>Initial release</li>
+                    <li>Vehicle management (add, edit, delete with photo upload)</li>
+                    <li>Maintenance record tracking with cost, mileage, vendor, and notes</li>
+                    <li>Dark theme UI with DM Sans typography</li>
+                    <li>SQLite database with WAL mode</li>
+                    <li>Mobile responsive layout</li>
+                </ul>
+            </div>
+                    </div>
+                </details>
+            </section>
         </div>
     </div>
-</div></div>
+</div>
+</div>
 
-<!-- ══ All other modals ═══════════════════════ -->
-<!-- Add Car --><div class="modal-overlay" id="addCarModal"><div class="modal modal-lg"><div class="modal-header"><h2>Add Vehicle</h2><button class="modal-close" onclick="closeModal('addCarModal')">&times;</button></div><form id="addCarForm" onsubmit="submitCar(event)"><div class="form-grid"><div class="form-group"><label>Year <span class="req">*</span></label><input type="number" name="year" min="1900" max="2099" required placeholder="2012"></div><div class="form-group"><label>Make <span class="req">*</span></label><input type="text" name="make" required placeholder="Toyota"></div><div class="form-group"><label>Model <span class="req">*</span></label><input type="text" name="model" required placeholder="Tacoma"></div><div class="form-group"><label>VIN</label><input type="text" name="vin" maxlength="17"></div><div class="form-group"><label>Purchase Date</label><input type="date" name="purchase_date"></div><div class="form-group full-width"><label>Photo</label><div class="file-upload"><input type="file" name="image" accept="image/*" onchange="previewFile(this,'carImagePreview')"><div class="file-upload-label" id="carImagePreview"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Upload</span></div></div></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('addCarModal')">Cancel</button><button type="submit" class="btn btn-primary" id="addCarBtn">Add Vehicle</button></div></form></div></div>
-<!-- Edit Car --><div class="modal-overlay" id="editCarModal"><div class="modal modal-lg"><div class="modal-header"><h2>Edit Vehicle</h2><button class="modal-close" onclick="closeModal('editCarModal')">&times;</button></div><form id="editCarForm" onsubmit="submitEditCar(event)"><input type="hidden" name="car_id" id="editCarId"><div class="form-grid"><div class="form-group"><label>Year <span class="req">*</span></label><input type="number" name="year" id="editCarYear" min="1900" max="2099" required></div><div class="form-group"><label>Make <span class="req">*</span></label><input type="text" name="make" id="editCarMake" required></div><div class="form-group"><label>Model <span class="req">*</span></label><input type="text" name="model" id="editCarModel" required></div><div class="form-group"><label>VIN</label><input type="text" name="vin" id="editCarVin" maxlength="17"></div><div class="form-group"><label>Purchase Date</label><input type="date" name="purchase_date" id="editCarPurchaseDate"></div><div class="form-group full-width"><label>Photo</label><div class="file-upload"><input type="file" name="image" accept="image/*" onchange="previewFile(this,'editCarImagePreview')"><div class="file-upload-label" id="editCarImagePreview"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Change photo</span></div></div></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('editCarModal')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
-<!-- Add Maint --><div class="modal-overlay" id="addMaintModal"><div class="modal modal-lg"><div class="modal-header"><h2>Add Service Record</h2><button class="modal-close" onclick="closeModal('addMaintModal')">&times;</button></div><form id="addMaintForm" onsubmit="submitMaintenance(event)"><div class="form-grid"><div class="form-group full-width"><label>Title <span class="req">*</span></label><input type="text" name="title" required placeholder="Oil change"></div><div class="form-group"><label>Type <span class="req">*</span></label><div class="type-selector"><label class="type-option"><input type="radio" name="maintenance_type" value="Maintenance" required checked><span class="type-chip maintenance">Maintenance</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Repair"><span class="type-chip repair">Repair</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Upgrade"><span class="type-chip upgrade">Upgrade</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Inspection"><span class="type-chip inspection">Inspection</span></label></div></div><div class="form-group"><label>Service Date <span class="req">*</span></label><input type="date" name="service_date" required oninput="renderMaintResetOptions()"></div><div class="form-group"><label>Odometer</label><input type="number" name="odometer" min="0" placeholder="Miles" oninput="renderMaintResetOptions()"></div><div class="form-group"><label>Vendor</label><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div><div class="form-group"><label>Cost</label><div class="input-prefix"><span>$</span><input type="number" name="cost" min="0" step="0.01" placeholder="0.00"></div></div><div class="form-group full-width"><label>Notes</label><textarea name="notes" rows="3"></textarea></div><div class="form-group full-width hidden" id="maintResetBlock"><label>Reset service counters</label><div id="maintResetList" class="reset-list"></div><small class="form-hint">Ticked counters restart their countdown from this record's mileage or date.</small></div><div class="form-group full-width"><label>Photos</label><div class="file-upload multi"><input type="file" name="gallery" accept="image/*" multiple onchange="previewGallery(this)"><div class="file-upload-label" id="maintGalleryPreview"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Upload photos</span></div></div><div id="galleryThumbs" class="gallery-thumbs"></div></div><div class="form-group full-width"><label>Receipts / Documents</label><div class="file-upload multi"><input type="file" name="documents" accept=".pdf" multiple onchange="previewDocuments(this,'addDocList')"><div class="file-upload-label"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Upload PDFs</span></div></div><div id="addDocList" class="doc-list"></div></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('addMaintModal')">Cancel</button><button type="submit" class="btn btn-primary" id="addMaintBtn">Save</button></div></form></div></div>
-<!-- Edit Maint --><div class="modal-overlay" id="editMaintModal"><div class="modal modal-lg"><div class="modal-header"><h2>Edit Record</h2><button class="modal-close" onclick="closeModal('editMaintModal')">&times;</button></div><form id="editMaintForm" onsubmit="submitEditMaintenance(event)"><input type="hidden" name="maint_id" id="editMaintId"><div class="form-grid"><div class="form-group full-width"><label>Title <span class="req">*</span></label><input type="text" name="title" id="editMaintTitle" required></div><div class="form-group"><label>Type <span class="req">*</span></label><div class="type-selector"><label class="type-option"><input type="radio" name="maintenance_type" value="Maintenance" id="editMaintTypeMaint"><span class="type-chip maintenance">Maintenance</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Repair" id="editMaintTypeRepair"><span class="type-chip repair">Repair</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Upgrade" id="editMaintTypeUpgrade"><span class="type-chip upgrade">Upgrade</span></label><label class="type-option"><input type="radio" name="maintenance_type" value="Inspection" id="editMaintTypeInspection"><span class="type-chip inspection">Inspection</span></label></div></div><div class="form-group"><label>Service Date <span class="req">*</span></label><input type="date" name="service_date" id="editMaintDate" required></div><div class="form-group"><label>Odometer</label><input type="number" name="odometer" id="editMaintOdo" min="0"></div><div class="form-group"><label>Vendor</label><div class="combo"><input type="text" name="parts_vendor" id="editMaintVendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div><div class="form-group"><label>Cost</label><div class="input-prefix"><span>$</span><input type="number" name="cost" id="editMaintCost" min="0" step="0.01"></div></div><div class="form-group full-width"><label>Notes</label><textarea name="notes" id="editMaintNotes" rows="3"></textarea></div><div class="form-group full-width"><label>Add Photos</label><div class="file-upload multi"><input type="file" name="gallery" accept="image/*" multiple><div class="file-upload-label"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Photos</span></div></div></div><div class="form-group full-width"><label>Add Documents</label><div class="file-upload multi"><input type="file" name="documents" accept=".pdf" multiple onchange="previewDocuments(this,'editDocList')"><div class="file-upload-label"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>PDFs</span></div></div><div id="editDocList" class="doc-list"></div></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('editMaintModal')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
-<!-- Add Reminder --><div class="modal-overlay" id="addReminderModal"><div class="modal"><div class="modal-header"><h2>Add Service Reminder</h2><button class="modal-close" onclick="closeModal('addReminderModal')">&times;</button></div><form id="addReminderForm" onsubmit="submitReminder(event)"><div class="form-grid"><div class="form-group full-width"><label>Service <span class="req">*</span></label><input type="text" name="title" required placeholder="Transmission fluid"><small class="form-hint">Log a service record with this same title and the next due point rolls forward automatically.</small></div><div class="form-group full-width"><label>Count down by</label><div class="interval-mode"><span class="interval-mode-lbl active" data-mode-lbl="miles">Mileage</span><label class="toggle"><input type="checkbox" name="interval_type_time" onchange="setReminderMode('add',this.checked)"><span class="toggle-slider"></span></label><span class="interval-mode-lbl" data-mode-lbl="time">Time</span></div><small class="form-hint">Mileage counts down from the odometer; time counts down from the date of the last service.</small></div><div class="form-group" data-mode="miles"><label>Every <span class="req">*</span></label><div class="input-suffix"><input type="number" name="interval_miles" min="1" step="1" required placeholder="30000"><span>miles</span></div></div><div class="form-group" data-mode="miles"><label>Last done at</label><div class="input-suffix"><input type="number" name="last_done_odometer" min="0" step="1" placeholder="Optional"><span>miles</span></div><small class="form-hint">Only used until a matching service record exists.</small></div><div class="form-group hidden" data-mode="time"><label>Every <span class="req">*</span></label><div class="input-suffix"><input type="number" name="interval_months" min="1" step="1" required placeholder="12" disabled><span>months</span></div></div><div class="form-group hidden" data-mode="time"><label>Last done on</label><input type="date" name="last_done_date" disabled><small class="form-hint">Only used until a matching service record exists.</small></div><div class="form-group full-width"><label>Notes</label><textarea name="notes" rows="2"></textarea></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('addReminderModal')">Cancel</button><button type="submit" class="btn btn-primary" id="addReminderBtn">Save</button></div></form></div></div>
-<!-- Edit Reminder --><div class="modal-overlay" id="editReminderModal"><div class="modal"><div class="modal-header"><h2>Edit Service Reminder</h2><button class="modal-close" onclick="closeModal('editReminderModal')">&times;</button></div><form id="editReminderForm" onsubmit="submitEditReminder(event)"><input type="hidden" name="id" id="editReminderId"><div class="form-grid"><div class="form-group full-width"><label>Service <span class="req">*</span></label><input type="text" name="title" required placeholder="Transmission fluid"><small class="form-hint">Log a service record with this same title and the next due point rolls forward automatically.</small></div><div class="form-group full-width"><label>Count down by</label><div class="interval-mode"><span class="interval-mode-lbl active" data-mode-lbl="miles">Mileage</span><label class="toggle"><input type="checkbox" name="interval_type_time" onchange="setReminderMode('edit',this.checked)"><span class="toggle-slider"></span></label><span class="interval-mode-lbl" data-mode-lbl="time">Time</span></div><small class="form-hint">Mileage counts down from the odometer; time counts down from the date of the last service.</small></div><div class="form-group" data-mode="miles"><label>Every <span class="req">*</span></label><div class="input-suffix"><input type="number" name="interval_miles" min="1" step="1" required placeholder="30000"><span>miles</span></div></div><div class="form-group" data-mode="miles"><label>Last done at</label><div class="input-suffix"><input type="number" name="last_done_odometer" min="0" step="1" placeholder="Optional"><span>miles</span></div><small class="form-hint">Only used until a matching service record exists.</small></div><div class="form-group hidden" data-mode="time"><label>Every <span class="req">*</span></label><div class="input-suffix"><input type="number" name="interval_months" min="1" step="1" required placeholder="12" disabled><span>months</span></div></div><div class="form-group hidden" data-mode="time"><label>Last done on</label><input type="date" name="last_done_date" disabled><small class="form-hint">Only used until a matching service record exists.</small></div><div class="form-group full-width"><label>Notes</label><textarea name="notes" rows="2"></textarea></div></div><div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="closeModal('editReminderModal')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
-<!-- View Maint --><div class="modal-overlay" id="viewMaintModal"><div class="modal modal-lg"><div class="modal-header"><h2 id="viewMaintTitle">Detail</h2><button class="modal-close" onclick="closeModal('viewMaintModal')">&times;</button></div><div id="viewMaintContent" class="view-maint-content"></div><div class="modal-actions" id="viewMaintActions"></div></div></div>
-<!-- Add User --><div class="modal-overlay" id="addUserModal"><div class="modal"><div class="modal-header"><h2>Add User</h2><button class="modal-close" onclick="closeModal('addUserModal')">&times;</button></div><div class="form-grid"><div class="form-group"><label>Username <span class="req">*</span></label><input type="text" id="newUsername" autocomplete="off"></div><div class="form-group"><label>Display Name</label><input type="text" id="newDisplayName"></div><div class="form-group"><label>Password <span class="req">*</span></label><input type="password" id="newPassword" autocomplete="new-password"></div><div class="form-group"><label>Role</label><select id="newRole" onchange="togglePermPanel('new')"><option value="editor">Editor</option><option value="admin">Admin</option></select></div></div><div id="newPermPanel" class="perm-panel"><div class="perm-panel-title">Permissions</div><div class="settings-grid" id="newPermGrid"></div></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('addUserModal')">Cancel</button><button class="btn btn-primary" onclick="submitNewUser()">Create</button></div></div></div>
-<!-- Edit User --><div class="modal-overlay" id="editUserModal"><div class="modal"><div class="modal-header"><h2>Edit User</h2><button class="modal-close" onclick="closeModal('editUserModal')">&times;</button></div><input type="hidden" id="editUserId"><div class="form-grid"><div class="form-group full-width"><label>Username</label><input type="text" id="editUsername" disabled></div><div class="form-group"><label>Display Name</label><input type="text" id="editDisplayName"></div><div class="form-group"><label>Role</label><select id="editRole" onchange="togglePermPanel('edit')"><option value="editor">Editor</option><option value="admin">Admin</option></select></div><div class="form-group full-width"><label>New Password <span style="color:var(--text-muted);font-weight:400">(blank=keep)</span></label><input type="password" id="editPassword" autocomplete="new-password"></div></div><div id="editPermPanel" class="perm-panel"><div class="perm-panel-title">Permissions</div><div class="settings-grid" id="editPermGrid"></div></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('editUserModal')">Cancel</button><button class="btn btn-primary" onclick="submitEditUser()">Save</button></div></div></div>
-<!-- Force PW --><div class="modal-overlay" id="forceChangePwModal"><div class="modal"><div class="modal-header"><h2>Change Your Password</h2></div><div class="form-grid"><div class="form-group full-width"><p style="font-size:0.82rem;color:var(--text-secondary)">You must change your password.</p></div><div class="form-group full-width"><label>New Password</label><input type="password" id="forceNewPw" placeholder="Min 4 chars"></div><div class="form-group full-width"><label>Confirm</label><input type="password" id="forceConfirmPw"></div></div><div class="modal-actions"><button class="btn btn-primary" onclick="forceChangePassword()">Set Password</button></div></div></div>
+<!-- ————— Vehicle ————— -->
+<div class="overlay" id="carModal" role="dialog" aria-modal="true" aria-labelledby="carModalTitle">
+<div class="modal modal--wide">
+    <div class="modal-head"><h2 id="carModalTitle">Add vehicle</h2><button class="iconbtn" onclick="closeModal('carModal')" aria-label="Close">{{ i('close') }}</button></div>
+    <form id="carForm" onsubmit="submitCar(event)">
+        <input type="hidden" name="car_id">
+        <div class="modal-body">
+            <div class="form-grid" style="grid-template-columns:110px 1fr 1fr">
+                <label class="field"><span class="field-label">Year <span class="req">*</span></span><input type="number" name="year" min="1900" max="2099" required placeholder="2012"></label>
+                <label class="field"><span class="field-label">Make <span class="req">*</span></span><input type="text" name="make" required placeholder="Toyota"></label>
+                <label class="field"><span class="field-label">Model <span class="req">*</span></span><input type="text" name="model" required placeholder="Tacoma"></label>
+            </div>
+            <div class="form-grid">
+                <label class="field"><span class="field-label">VIN <span class="opt">optional</span></span><input type="text" name="vin" maxlength="17" autocomplete="off" style="text-transform:uppercase"></label>
+                <label class="field"><span class="field-label">Purchase date <span class="opt">optional</span></span><input type="date" name="purchase_date"></label>
+            </div>
+            <div class="field"><span class="field-label">Photo</span>
+                <div class="drop drop--photo"><input type="file" name="image" accept="image/*" onchange="previewFile(this,'carImagePreview')" aria-label="Vehicle photo"><div class="drop-face" id="carImagePreview"></div></div>
+            </div>
+        </div>
+        <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="closeModal('carModal')">Cancel</button><button type="submit" class="btn btn--primary" id="carSubmitBtn">Add vehicle</button></div>
+    </form>
+</div>
+</div>
 
-<div class="lightbox" id="lightbox" onclick="closeLightbox()"><button class="lightbox-close" onclick="closeLightbox()">&times;</button><button class="lightbox-nav prev" onclick="event.stopPropagation();lightboxPrev()">&#8249;</button><img id="lightboxImg" src="" alt=""><button class="lightbox-nav next" onclick="event.stopPropagation();lightboxNext()">&#8250;</button></div>
-<div id="toastContainer" class="toast-container"></div>
-<script src="/static/js/app.js"></script>
+<!-- ————— Service record: add and edit ————— -->
+<div class="overlay overlay--side" id="recordPanel" role="dialog" aria-modal="true" aria-labelledby="recordPanelTitle">
+<div class="slideout">
+    <div class="modal-head"><h2 id="recordPanelTitle">Add service record</h2><button class="iconbtn" onclick="closeModal('recordPanel')" aria-label="Close" title="Close (Esc)">{{ i('close') }}</button></div>
+    <form id="recordForm" onsubmit="submitRecord(event)" style="display:contents">
+        <input type="hidden" name="maint_id">
+        <div class="modal-body">
+            <label class="field"><span class="field-label">Vehicle</span><select id="recordCar" onchange="onRecordCarChange()" required></select></label>
+            <label class="field"><span class="field-label">Title <span class="req">*</span></span><input type="text" name="title" required placeholder="Oil and filter change" autocomplete="off"></label>
+            <div class="field"><span class="field-label">Type</span>
+                <div class="seg seg--block" role="radiogroup" aria-label="Type">
+                    <label class="t-maintenance"><input type="radio" name="maintenance_type" value="Maintenance" checked><span><i class="dot"></i>Maintenance</span></label>
+                    <label class="t-repair"><input type="radio" name="maintenance_type" value="Repair"><span><i class="dot"></i>Repair</span></label>
+                    <label class="t-upgrade"><input type="radio" name="maintenance_type" value="Upgrade"><span><i class="dot"></i>Upgrade</span></label>
+                    <label class="t-inspection"><input type="radio" name="maintenance_type" value="Inspection"><span><i class="dot"></i>Inspection</span></label>
+                </div>
+            </div>
+            <div class="form-grid">
+                <label class="field"><span class="field-label">Service date <span class="req">*</span></span><input type="date" name="service_date" required oninput="renderMaintResetOptions()"></label>
+                <label class="field"><span class="field-label">Odometer</span><span class="affix"><input type="number" name="odometer" min="0" placeholder="0" oninput="renderMaintResetOptions()"><span class="affix-post">miles</span></span></label>
+                <div class="field"><span class="field-label">Vendor</span><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div>
+                <label class="field"><span class="field-label">Cost</span><span class="affix"><span class="affix-pre">$</span><input type="number" name="cost" min="0" step="0.01" placeholder="0.00"></span></label>
+            </div>
+            <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="4" placeholder="Parts used, fluids, anything worth remembering next time"></textarea></label>
+            <div class="form-section hidden" id="maintResetBlock">
+                <div><div class="form-section-title">Restart reminders</div><div class="field-hint">Ticked reminders count down again from this record's mileage or date.</div></div>
+                <div id="maintResetList" class="reset-list"></div>
+            </div>
+            <div class="form-section">
+                <div class="form-section-title" id="attachTitle">Attachments</div>
+                <div class="drops">
+                    <div class="drop"><input type="file" name="gallery" accept="image/*" multiple onchange="previewGallery(this)" aria-label="Photos"><div class="drop-face">{{ i('image') }}<span><b>Photos</b><small>Images of the work or parts</small></span></div></div>
+                    <div class="drop"><input type="file" name="documents" accept=".pdf" multiple onchange="previewDocuments(this,'recordDocList')" aria-label="Receipts"><div class="drop-face">{{ i('file') }}<span><b>Receipts</b><small>PDF invoices and documents</small></span></div></div>
+                </div>
+                <div id="galleryThumbs" class="thumbs"></div>
+                <div id="recordDocList" class="doc-list"></div>
+            </div>
+        </div>
+        <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="closeModal('recordPanel')">Cancel</button><button type="submit" class="btn btn--primary" id="recordSubmitBtn">Save record</button></div>
+    </form>
+</div>
+</div>
+
+<!-- ————— Service record: detail ————— -->
+<div class="overlay" id="viewMaintModal" role="dialog" aria-modal="true" aria-labelledby="viewMaintTitle">
+<div class="modal modal--wide">
+    <div class="modal-head"><h2 id="viewMaintTitle">Record</h2><button class="iconbtn" onclick="closeModal('viewMaintModal')" aria-label="Close">{{ i('close') }}</button></div>
+    <div class="modal-body" id="viewMaintContent"></div>
+    <div class="modal-foot" id="viewMaintActions"></div>
+</div>
+</div>
+
+<!-- ————— Reminder: add and edit ————— -->
+<div class="overlay" id="reminderModal" role="dialog" aria-modal="true" aria-labelledby="reminderModalTitle">
+<div class="modal">
+    <div class="modal-head"><h2 id="reminderModalTitle">Add reminder</h2><button class="iconbtn" onclick="closeModal('reminderModal')" aria-label="Close">{{ i('close') }}</button></div>
+    <form id="reminderForm" onsubmit="submitReminder(event)">
+        <input type="hidden" name="id">
+        <div class="modal-body">
+            <label class="field"><span class="field-label">Service <span class="req">*</span></span><input type="text" name="title" required placeholder="Transmission fluid" autocomplete="off"><span class="field-hint">Log a record with this same title and the next due point moves forward on its own.</span></label>
+            <div class="field"><span class="field-label">Count down by</span>
+                <div class="seg seg--block" role="radiogroup" aria-label="Count down by">
+                    <label><input type="radio" name="interval_mode" value="miles" checked onchange="setReminderMode(false)"><span>Mileage</span></label>
+                    <label><input type="radio" name="interval_mode" value="time" onchange="setReminderMode(true)"><span>Time</span></label>
+                </div>
+            </div>
+            <div class="form-grid">
+                <label class="field" data-mode="miles"><span class="field-label">Every <span class="req">*</span></span><span class="affix"><input type="number" name="interval_miles" min="1" step="1" required placeholder="30000"><span class="affix-post">miles</span></span></label>
+                <label class="field" data-mode="miles"><span class="field-label">Last done at <span class="opt">optional</span></span><span class="affix"><input type="number" name="last_done_odometer" min="0" step="1"><span class="affix-post">miles</span></span></label>
+                <label class="field hidden" data-mode="time"><span class="field-label">Every <span class="req">*</span></span><span class="affix"><input type="number" name="interval_months" min="1" step="1" required placeholder="12" disabled><span class="affix-post">months</span></span></label>
+                <label class="field hidden" data-mode="time"><span class="field-label">Last done on <span class="opt">optional</span></span><input type="date" name="last_done_date" disabled></label>
+                <span class="field-hint span-2" style="margin-top:-8px">The last-done value is only used until a matching service record exists.</span>
+            </div>
+            <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="2" style="min-height:64px"></textarea></label>
+        </div>
+        <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="closeModal('reminderModal')">Cancel</button><button type="submit" class="btn btn--primary" id="reminderSubmitBtn">Add reminder</button></div>
+    </form>
+</div>
+</div>
+
+<!-- ————— Users ————— -->
+<div class="overlay" id="addUserModal" role="dialog" aria-modal="true" aria-labelledby="addUserTitle">
+<div class="modal">
+    <div class="modal-head"><h2 id="addUserTitle">Add user</h2><button class="iconbtn" onclick="closeModal('addUserModal')" aria-label="Close">{{ i('close') }}</button></div>
+    <div class="modal-body">
+        <div class="form-grid">
+            <label class="field"><span class="field-label">Username <span class="req">*</span></span><input type="text" id="newUsername" autocomplete="off"></label>
+            <label class="field"><span class="field-label">Display name</span><input type="text" id="newDisplayName"></label>
+            <label class="field"><span class="field-label">Password <span class="req">*</span></span><input type="password" id="newPassword" autocomplete="new-password"></label>
+            <label class="field"><span class="field-label">Role</span><select id="newRole" onchange="togglePermPanel('new')"><option value="editor">Editor</option><option value="admin">Admin</option></select></label>
+        </div>
+        <div id="newPermPanel" class="perm-panel"><div class="pane-group-title" style="margin:0">Permissions</div><div class="rows" id="newPermGrid"></div></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn--ghost" onclick="closeModal('addUserModal')">Cancel</button><button class="btn btn--primary" onclick="submitNewUser()">Add user</button></div>
+</div>
+</div>
+<div class="overlay" id="editUserModal" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+<div class="modal">
+    <div class="modal-head"><h2 id="editUserTitle">Edit user</h2><button class="iconbtn" onclick="closeModal('editUserModal')" aria-label="Close">{{ i('close') }}</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="editUserId">
+        <div class="form-grid">
+            <label class="field span-2"><span class="field-label">Username</span><input type="text" id="editUsername" disabled></label>
+            <label class="field"><span class="field-label">Display name</span><input type="text" id="editDisplayName"></label>
+            <label class="field"><span class="field-label">Role</span><select id="editRole" onchange="togglePermPanel('edit')"><option value="editor">Editor</option><option value="admin">Admin</option></select></label>
+            <label class="field span-2"><span class="field-label">New password <span class="opt">leave blank to keep</span></span><input type="password" id="editPassword" autocomplete="new-password"></label>
+        </div>
+        <div id="editPermPanel" class="perm-panel"><div class="pane-group-title" style="margin:0">Permissions</div><div class="rows" id="editPermGrid"></div></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn--ghost" onclick="closeModal('editUserModal')">Cancel</button><button class="btn btn--primary" onclick="submitEditUser()">Save changes</button></div>
+</div>
+</div>
+
+<!-- ————— First sign-in ————— -->
+<div class="overlay" id="forceChangePwModal" role="dialog" aria-modal="true" aria-labelledby="forcePwTitle">
+<div class="modal">
+    <div class="modal-head"><h2 id="forcePwTitle">Choose a new password</h2></div>
+    <div class="modal-body">
+        <p class="pane-intro" style="margin:0">This account still has its first password. Set your own to continue.</p>
+        <label class="field"><span class="field-label">New password</span><input type="password" id="forceNewPw" autocomplete="new-password"><span class="field-hint">At least 4 characters.</span></label>
+        <label class="field"><span class="field-label">Confirm</span><input type="password" id="forceConfirmPw" autocomplete="new-password"></label>
+    </div>
+    <div class="modal-foot"><button class="btn btn--primary" onclick="forceChangePassword()">Set password</button></div>
+</div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <button class="iconbtn lightbox-close" onclick="closeLightbox()" aria-label="Close">{{ i('close') }}</button>
+    <button class="iconbtn lightbox-nav prev" onclick="event.stopPropagation();lightboxPrev()" aria-label="Previous photo">{{ i('back') }}</button>
+    <img id="lightboxImg" src="" alt="" onclick="event.stopPropagation()">
+    <button class="iconbtn lightbox-nav next" onclick="event.stopPropagation();lightboxNext()" aria-label="Next photo">{{ i('next') }}</button>
+</div>
+<div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
+<script src="/static/js/app.js?v={{ version }}"></script>
 </body>
 </html>

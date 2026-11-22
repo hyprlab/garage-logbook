@@ -546,7 +546,14 @@ def login_page():
 @login_required
 def index():
     perms = get_user_perms(g.user)
-    return render_template('index.html', user=g.user, version=APP_VERSION, perms=perms)
+    # The saved theme, so the page paints in it before the settings load.
+    conn = get_db()
+    row = conn.execute('SELECT settings FROM user_settings WHERE user_id=?', (g.user['id'],)).fetchone()
+    conn.close()
+    try: theme = json.loads(row['settings']).get('theme', 'dark') if row else 'dark'
+    except (ValueError, TypeError): theme = 'dark'
+    if theme not in ('dark', 'light', 'system'): theme = 'dark'
+    return render_template('index.html', user=g.user, version=APP_VERSION, perms=perms, theme_pref=theme)
 
 @app.route('/api/version')
 def api_version():
@@ -1222,18 +1229,34 @@ def get_stats():
     date_clause = ''
     if range_filter=='month': date_clause="AND m.service_date >= date('now','start of month')"
     elif range_filter=='year': date_clause="AND m.service_date >= date('now','start of year')"
+    # Admins see every vehicle; everyone else only their own. One scope clause
+    # serves every query below, so the figures always agree with each other.
     if g.user['role'] == 'admin':
+        scope, args = 'WHERE 1=1', ()
         tc = conn.execute('SELECT COUNT(*) as c FROM cars').fetchone()['c']
-        tm = conn.execute(f'SELECT COUNT(*) as c FROM maintenance m {date_clause.replace("AND","WHERE",1) if date_clause else ""}').fetchone()['c']
-        cost = conn.execute(f'SELECT COALESCE(SUM(m.cost),0) as c FROM maintenance m {date_clause.replace("AND","WHERE",1) if date_clause else ""}').fetchone()['c']
-        recent = conn.execute("SELECT m.*, c.year, c.make, c.model FROM maintenance m JOIN cars c ON m.car_id=c.id ORDER BY m.created_at DESC LIMIT 5").fetchall()
     else:
+        scope, args = 'WHERE c.user_id=?', (g.user['id'],)
         tc = conn.execute('SELECT COUNT(*) as c FROM cars WHERE user_id=?',(g.user['id'],)).fetchone()['c']
-        tm = conn.execute(f'SELECT COUNT(*) as c FROM maintenance m JOIN cars c ON m.car_id=c.id WHERE c.user_id=? {date_clause}',(g.user['id'],)).fetchone()['c']
-        cost = conn.execute(f'SELECT COALESCE(SUM(m.cost),0) as c FROM maintenance m JOIN cars c ON m.car_id=c.id WHERE c.user_id=? {date_clause}',(g.user['id'],)).fetchone()['c']
-        recent = conn.execute("SELECT m.*, c.year, c.make, c.model FROM maintenance m JOIN cars c ON m.car_id=c.id WHERE c.user_id=? ORDER BY m.created_at DESC LIMIT 5",(g.user['id'],)).fetchall()
+    base = f'FROM maintenance m JOIN cars c ON m.car_id=c.id {scope}'
+    totals = conn.execute(f'SELECT COUNT(*) AS n, COALESCE(SUM(m.cost),0) AS cost, MAX(m.service_date) AS last {base} {date_clause}', args).fetchone()
+    recent = conn.execute(f'SELECT m.*, c.year, c.make, c.model {base} ORDER BY m.service_date DESC, m.id DESC LIMIT 8', args).fetchall()
+    by_type = conn.execute(f'SELECT m.maintenance_type AS type, COUNT(*) AS count, COALESCE(SUM(m.cost),0) AS cost {base} {date_clause} GROUP BY m.maintenance_type', args).fetchall()
+    # The last twelve calendar months, this one included, with empty months
+    # filled in so the chart keeps an even axis.
+    rows = conn.execute(f"SELECT strftime('%Y-%m', m.service_date) AS ym, COUNT(*) AS count, COALESCE(SUM(m.cost),0) AS cost {base} AND m.service_date >= date('now','start of month','-11 months') GROUP BY ym", args).fetchall()
     conn.close()
-    return jsonify({'total_cars':tc,'total_maintenance':tm,'total_cost':round(cost,2),'recent_entries':[dict(r) for r in recent]})
+    by_month = {r['ym']: r for r in rows}
+    first = date.today().replace(day=1)
+    months = []
+    for i in range(11, -1, -1):
+        y, mo = divmod(first.year * 12 + first.month - 1 - i, 12)
+        ym = f'{y:04d}-{mo + 1:02d}'
+        r = by_month.get(ym)
+        months.append({'month': ym, 'count': r['count'] if r else 0, 'cost': round(r['cost'], 2) if r else 0})
+    return jsonify({'total_cars':tc,'total_maintenance':totals['n'],'total_cost':round(totals['cost'],2),
+                    'last_service':totals['last'],'recent_entries':[dict(r) for r in recent],
+                    'by_type':[{'type':r['type'],'count':r['count'],'cost':round(r['cost'],2)} for r in by_type],
+                    'monthly':months})
 
 init_db()
 
