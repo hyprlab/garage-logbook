@@ -373,12 +373,13 @@ const APP_VERSION="{{version}}";
                     <ul>
                         <li>New: a redesigned dashboard with spending over the last 12 months, spending by type, the reminders coming up next, recent service and every vehicle at a glance</li>
                         <li>New: a top bar on every page with its title, search and main action; the dashboard's time range is picked there instead of in Settings</li>
-                        <li>New: service records and vehicles are added and edited in a panel that slides in from the right; records can be logged from the dashboard by choosing the vehicle</li>
+                        <li>New: service records open in a panel that slides in from the right, and Edit turns the same panel into the record's form. Records and vehicles are added there too, and records can be logged from the dashboard by choosing the vehicle</li>
+                        <li>Duplicating a record opens the copy, ready to change</li>
                         <li>New: export a vehicle's whole service history as one PDF from its menu, with totals, a table of every record, and each record's notes, photos and receipts, which are attached to the file</li>
                         <li>New: tick records on a vehicle's page, or the box at the top of the list to select them all, and export each as its own PDF. Several arrive together in one zip file; an open record can also be exported on its own</li>
                         <li>The Export CSV permission is now called Export records and covers PDF export as well</li>
                         <li>New: the theme can follow the system setting, and a theme button sits in the sidebar footer</li>
-                        <li>New: each page has its own address, so reloading or bookmarking keeps your place</li>
+                        <li>New: each page and each open record has its own address, so reloading or bookmarking keeps your place</li>
                         <li>Settings opens as a two-pane window with its sections down the side; on phones it opens as a list</li>
                         <li>The sidebar lists vehicles with their photos and marks the current page with a bar; the version moved to Settings and About</li>
                         <li>The interface uses Inter throughout and fills the width of the window</li>
@@ -601,10 +602,19 @@ const APP_VERSION="{{version}}";
 </div>
 </div>
 
-<!-- ————— Service record: add and edit ————— -->
+<!-- ————— Service record: view, add and edit ————— -->
 <div class="overlay overlay--side" id="recordPanel" role="dialog" aria-modal="true" aria-labelledby="recordPanelTitle">
 <div class="slideout">
-    <div class="modal-head"><h2 id="recordPanelTitle">Add service record</h2><button class="iconbtn" onclick="closeModal('recordPanel')" aria-label="Close" title="Close (Esc)">{{ i('close') }}</button></div>
+    <div class="modal-head">
+        <button class="iconbtn panel-back" id="recordBack" onclick="cancelRecordForm()" aria-label="Back to the record" title="Back to the record (Esc)" hidden>{{ i('back') }}</button>
+        <h2 id="recordPanelTitle">Add service record</h2>
+        <button class="iconbtn" onclick="closeModal('recordPanel')" aria-label="Close" title="Close">{{ i('close') }}</button>
+    </div>
+    {# Viewing a record. Edit turns the same panel into the form below. #}
+    <div class="record-view" id="recordView" hidden>
+        <div class="modal-body" id="viewMaintContent"></div>
+        <div class="modal-foot" id="viewMaintActions"></div>
+    </div>
     <form id="recordForm" onsubmit="submitRecord(event)" style="display:contents">
         <input type="hidden" name="maint_id">
         <div class="modal-body">
@@ -639,17 +649,8 @@ const APP_VERSION="{{version}}";
                 <div id="recordDocList" class="doc-list"></div>
             </div>
         </div>
-        <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="closeModal('recordPanel')">Cancel</button><button type="submit" class="btn btn--primary" id="recordSubmitBtn">Save record</button></div>
+        <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="cancelRecordForm()">Cancel</button><button type="submit" class="btn btn--primary" id="recordSubmitBtn">Save record</button></div>
     </form>
-</div>
-</div>
-
-<!-- ————— Service record: detail ————— -->
-<div class="overlay" id="viewMaintModal" role="dialog" aria-modal="true" aria-labelledby="viewMaintTitle">
-<div class="modal modal--wide">
-    <div class="modal-head"><h2 id="viewMaintTitle">Record</h2><button class="iconbtn" onclick="closeModal('viewMaintModal')" aria-label="Close">{{ i('close') }}</button></div>
-    <div class="modal-body" id="viewMaintContent"></div>
-    <div class="modal-foot" id="viewMaintActions"></div>
 </div>
 </div>
 

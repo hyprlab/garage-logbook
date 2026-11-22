@@ -51,7 +51,7 @@ function populateUserMenu(){
 // ————— Routing: every page has an address —————
 function route(){
     const h=location.hash.replace(/^#\/?/,'');let m;
-    if((m=h.match(/^car\/(\d+)$/)))return showCar(+m[1]);
+    if((m=h.match(/^car\/(\d+)(?:\/record\/(\d+))?$/))){if(m[2])pendingRecordId=+m[2];return showCar(+m[1])}
     showView(h==='garage'?'garage':'dashboard');
 }
 function go(h){if(location.hash==='#'+h)route();else location.hash=h}
@@ -137,6 +137,7 @@ document.addEventListener('keydown',e=>{
         if(document.querySelector('.menu.is-open')){closeMenus();return}
         const top=modalStack[modalStack.length-1];
         if(top){
+            if(top==='recordPanel'&&recordMode==='edit'&&viewedRecord){cancelRecordForm();return}
             if(top==='settingsModal'&&$('settingsModal').querySelector('.settings-modal').classList.contains('is-showing-pane')&&matchMedia('(max-width: 700px)').matches){settingsBack();return}
             closeModal(top);return;
         }
@@ -162,6 +163,7 @@ function closeModal(id){
     if(id==='forceChangePwModal'&&CURRENT_USER.must_change_password)return;
     const el=$(id);if(!el||!el.classList.contains('is-open'))return;
     const i=modalStack.lastIndexOf(id);if(i>=0)modalStack.splice(i,1);
+    if(id==='recordPanel'&&/\/record\/\d+$/.test(location.hash))history.replaceState(null,'',location.hash.replace(/\/record\/\d+$/,''));
     const done=()=>{el.classList.remove('is-open','is-closing');if(!modalStack.length)document.documentElement.style.overflow=''};
     if(el.classList.contains('overlay--side')&&!reducedMotion()){el.classList.add('is-closing');el._closeTimer=setTimeout(done,270)}
     else done();
@@ -498,78 +500,117 @@ function openImportForCar(){openSettings('import',currentCarId)}
 
 // ————— Record detail —————
 function openMaintDetailById(id){const e=maintEntries.find(x=>x.id===id);if(e)openMaintDetail(e)}
+// ————— A record: viewed in the slide-in panel, which turns into its form to edit —————
+let recordMode=null,viewedRecord=null;   // recordMode: 'view', 'add' or 'edit'
+function setRecordMode(mode){
+    recordMode=mode;
+    $('recordView').hidden=mode!=='view';$('recordForm').hidden=mode==='view';
+    $('recordBack').hidden=!(mode==='edit'&&viewedRecord);
+    const body=(mode==='view'?$('recordView'):$('recordForm')).querySelector('.modal-body');
+    body.scrollTop=0;body.classList.remove('is-entering');void body.offsetWidth;body.classList.add('is-entering');
+}
 function openMaintDetail(e){
+    viewedRecord=e;renderRecordView(e);setRecordMode('view');openModal('recordPanel');
+    history.replaceState(null,'',`#car/${e.car_id}/record/${e.id}`);
+}
+function renderRecordView(e){
     const images=(e.images||[]).filter(i=>i.file_type!=='document'),docs=(e.images||[]).filter(i=>i.file_type==='document');
-    const urls=images.map(i=>'/uploads/maintenance/'+i.filename);
-    $('viewMaintTitle').textContent=e.title;
+    const urls=images.map(i=>'/uploads/maintenance/'+i.filename),car=carsCache.find(c=>c.id===e.car_id);
+    $('recordPanelTitle').textContent='Service record';
     const cell=(l,v)=>`<div class="detail-cell"><span class="l">${l}</span><span class="v">${v}</span></div>`;
     $('viewMaintContent').innerHTML=`
-        <div class="detail-type ${typeClass(e.maintenance_type)}"><i class="dot"></i>${esc(e.maintenance_type)}</div>
+        <div class="record-head">
+            <div class="detail-type ${typeClass(e.maintenance_type)}"><i class="dot"></i>${esc(e.maintenance_type)}${car?`<span class="detail-car">${esc(carName(car))}</span>`:''}</div>
+            <h3 class="record-title">${esc(e.title)}</h3>
+        </div>
         <div class="detail-grid">${cell('Date',formatDate(e.service_date))}${cell('Odometer',e.odometer?n(e.odometer)+' mi':'—')}${cell('Cost',e.cost!=null&&e.cost!==''?money(e.cost):'—')}${cell('Vendor',esc(e.parts_vendor)||'—')}</div>
-        ${e.notes?`<div><div class="detail-label">Notes</div><p class="detail-notes">${esc(e.notes)}</p></div>`:''}
-        ${images.length?`<div><div class="detail-label">Photos</div><div class="gallery">${images.map((img,idx)=>`<img src="${attr(urls[idx])}" alt="" loading="lazy" data-idx="${idx}">`).join('')}</div></div>`:''}
-        ${docs.length?`<div><div class="detail-label">Receipts and documents</div><div class="docs">${docs.map(d=>`<a href="/uploads/maintenance/${attr(d.filename)}" target="_blank" rel="noopener" class="doc-link">${ic('file')}<span>${esc(d.original_name||'Document.pdf')}</span></a>`).join('')}</div></div>`:''}`;
+        ${e.notes?`<section><h4 class="detail-label">Notes</h4><p class="detail-notes">${esc(e.notes)}</p></section>`:''}
+        ${docs.length?`<section><h4 class="detail-label">Receipts and documents</h4><div class="docs">${docs.map(d=>`<a href="/uploads/maintenance/${attr(d.filename)}" target="_blank" rel="noopener" class="doc-link">${ic('file')}<span>${esc(d.original_name||'Document.pdf')}</span></a>`).join('')}</div></section>`:''}
+        ${images.length?`<section><h4 class="detail-label">Photos</h4><div class="gallery">${images.map((img,idx)=>`<img src="${attr(urls[idx])}" alt="" loading="lazy" data-idx="${idx}">`).join('')}</div></section>`:''}
+        ${!e.notes&&!docs.length&&!images.length?`<p class="record-empty">No notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
+        ${e.created_at?`<p class="record-meta">Logged ${formatDate(e.created_at.slice(0,10))}</p>`:''}`;
     $('viewMaintContent').querySelectorAll('.gallery img').forEach(img=>img.addEventListener('click',()=>openLightbox(urls,+img.dataset.idx)));
     let btns='';
-    if(hasPerm('can_delete_records'))btns+=`<button class="btn btn--danger btn--sm" onclick="deleteMaintenance(${e.id})">${ic('delete')}Delete</button>`;
+    if(hasPerm('can_delete_records'))btns+=`<button class="btn btn--danger btn--sm" onclick="deleteMaintenance(${e.id})" aria-label="Delete record" title="Delete record">${ic('delete')}<span class="btn-label">Delete</span></button>`;
     btns+='<span class="spacer"></span>';
-    if(hasPerm('can_export'))btns+=`<button class="btn btn--ghost btn--sm" onclick="exportRecordPdfs([${e.id}],this,${e.car_id})">${ic('file')}<span>Export PDF</span></button>`;
-    if(hasPerm('can_add_records'))btns+=`<button class="btn btn--ghost btn--sm" onclick="duplicateMaintenance(${e.id})">${ic('copy')}Duplicate</button>`;
-    if(hasPerm('can_edit_records'))btns+=`<button class="btn btn--primary btn--sm" onclick="closeModal('viewMaintModal');openRecordPanel(${e.id})">${ic('edit')}Edit</button>`;
-    else btns+=`<button class="btn btn--ghost btn--sm" onclick="closeModal('viewMaintModal')">Close</button>`;
+    if(hasPerm('can_export'))btns+=`<button class="btn btn--ghost btn--sm" onclick="exportRecordPdfs([${e.id}],this,${e.car_id})" aria-label="Export PDF" title="Export PDF">${ic('file')}<span class="btn-label">Export PDF</span></button>`;
+    if(hasPerm('can_add_records'))btns+=`<button class="btn btn--ghost btn--sm" onclick="duplicateMaintenance(${e.id},this)" aria-label="Duplicate record" title="Duplicate record">${ic('copy')}<span class="btn-label">Duplicate</span></button>`;
+    if(hasPerm('can_edit_records'))btns+=`<button class="btn btn--primary btn--sm" onclick="openRecordPanel(viewedRecord)">${ic('edit')}Edit</button>`;
     $('viewMaintActions').innerHTML=btns;
-    openModal('viewMaintModal');
+}
+// The record as it is now, after a save: from the list if it is showing,
+// otherwise from the vehicle's full list (a search may be hiding it).
+async function freshRecord(carId,id){
+    await loadMaintenance();
+    return maintEntries.find(x=>x.id===id)||(await getJSON(`/api/cars/${carId}/maintenance`)).find(x=>x.id===id);
 }
 function afterRecordChange(){loadMaintenance();loadReminders();loadSidebarCars();if(currentView==='dashboard')loadDashboard()}
 async function deleteMaintenance(id){
     if(!confirm('Delete this record and its attachments? This cannot be undone.'))return;
-    try{const r=await api('/api/maintenance/'+id,{method:'DELETE'});if(!r.ok)throw new Error();toast('Record deleted');closeModal('viewMaintModal');afterRecordChange()}
+    try{const r=await api('/api/maintenance/'+id,{method:'DELETE'});if(!r.ok)throw new Error();toast('Record deleted');viewedRecord=null;closeModal('recordPanel');afterRecordChange()}
     catch(e){toast('The record could not be deleted.','error')}
 }
-async function duplicateMaintenance(id){
-    try{const r=await api('/api/maintenance/'+id+'/duplicate',{method:'POST'});if(!r.ok)throw new Error(await errorOf(r,'The record could not be duplicated.'));toast('Record duplicated');closeModal('viewMaintModal');afterRecordChange()}
-    catch(e){toast(e.message,'error')}
+// The copy opens in the form, since a copy is nearly always made to be changed.
+async function duplicateMaintenance(id,btn){
+    if(btn)btn.disabled=true;
+    try{const r=await api('/api/maintenance/'+id+'/duplicate',{method:'POST'});if(!r.ok)throw new Error(await errorOf(r,'The record could not be duplicated.'));
+        const copy=await r.json(),fresh=await freshRecord(copy.car_id,copy.id);afterRecordChange();
+        toast('Record duplicated');if(fresh){viewedRecord=fresh;history.replaceState(null,'',`#car/${fresh.car_id}/record/${fresh.id}`);openRecordPanel(fresh)}}
+    catch(e){toast(e.message,'error')}finally{if(btn)btn.disabled=false}
 }
 
 // ————— Record form: the slideout, for adding and editing —————
 let recordEditId=null;
-async function openRecordPanel(editId){
-    const f=$('recordForm');
+// Without a record, a blank form to add one; with one, that record to edit.
+async function openRecordPanel(rec){
+    const f=$('recordForm'),editing=!!(rec&&rec.id);
     if(!carsCache.length)await fetchCars().catch(()=>{});
     if(!carsCache.length){toast('Add a vehicle first, then log records against it.','error');openCarModal();return}
-    f.reset();recordEditId=editId||null;f.maint_id.value=editId||'';
+    if(!editing)viewedRecord=null;
+    f.reset();recordEditId=editing?rec.id:null;f.maint_id.value=recordEditId||'';
     $('galleryThumbs').innerHTML='';$('recordDocList').innerHTML='';
     const sel=$('recordCar');
     sel.innerHTML=carsCache.map(c=>`<option value="${c.id}">${esc(carName(c))}</option>`).join('');
-    sel.value=String(currentCarId||carsCache[0].id);
-    sel.disabled=!!editId;
-    $('recordPanelTitle').textContent=editId?'Edit record':'Add service record';
-    $('recordSubmitBtn').textContent=editId?'Save changes':'Save record';
-    $('attachTitle').textContent=editId?'Add attachments':'Attachments';
-    if(editId){
-        const e=maintEntries.find(x=>x.id===editId);if(!e){toast('That record could not be found.','error');return}
-        sel.value=String(e.car_id);f.title.value=e.title;f.service_date.value=e.service_date;f.odometer.value=e.odometer??'';
-        f.parts_vendor.value=e.parts_vendor||'';f.cost.value=e.cost??'';f.notes.value=e.notes||'';
-        const t=f.querySelector(`[name="maintenance_type"][value="${e.maintenance_type}"]`);if(t)t.checked=true;
+    sel.value=String(editing?rec.car_id:(currentCarId||carsCache[0].id));
+    sel.disabled=editing;
+    $('recordPanelTitle').textContent=editing?'Edit record':'Add service record';
+    $('recordSubmitBtn').textContent=editing?'Save changes':'Save record';
+    $('attachTitle').textContent=editing?'Add attachments':'Attachments';
+    if(editing){
+        f.title.value=rec.title;f.service_date.value=rec.service_date;f.odometer.value=rec.odometer??'';
+        f.parts_vendor.value=rec.parts_vendor||'';f.cost.value=rec.cost??'';f.notes.value=rec.notes||'';
+        const ty=f.querySelector(`[name="maintenance_type"][value="${rec.maintenance_type}"]`);if(ty)ty.checked=true;
         $('maintResetBlock').classList.add('hidden');maintResetReminders=[];
     }else{
         f.service_date.valueAsDate=new Date();
         loadMaintResetOptions(+sel.value);
     }
-    openModal('recordPanel');
-    setTimeout(()=>f.title.focus({preventScroll:true}),editId?60:330);
+    const wasOpen=$('recordPanel').classList.contains('is-open');
+    setRecordMode(editing?'edit':'add');openModal('recordPanel');
+    setTimeout(()=>f.title.focus({preventScroll:true}),wasOpen?40:330);
+}
+// Cancel: back to the record when editing one that was open, else close.
+function cancelRecordForm(){
+    if(recordMode==='edit'&&viewedRecord){renderRecordView(viewedRecord);setRecordMode('view')}
+    else closeModal('recordPanel');
 }
 function onRecordCarChange(){loadMaintResetOptions(+$('recordCar').value)}
-function openEditMaintModal(id){openRecordPanel(id)}
+function openEditMaintModal(id){const e=maintEntries.find(x=>x.id===id);if(e)openRecordPanel(e)}
 async function submitRecord(e){
-    e.preventDefault();const f=e.target,b=$('recordSubmitBtn'),label=b.textContent,carId=+$('recordCar').value;
+    e.preventDefault();const f=e.target,b=$('recordSubmitBtn'),label=b.textContent,carId=+$('recordCar').value,editId=recordEditId;
     b.disabled=true;b.textContent='Saving…';
     try{
-        const r=recordEditId?await api('/api/maintenance/'+recordEditId,{method:'PUT',body:new FormData(f)})
-                            :await api('/api/cars/'+carId+'/maintenance',{method:'POST',body:new FormData(f)});
+        const r=editId?await api('/api/maintenance/'+editId,{method:'PUT',body:new FormData(f)})
+                      :await api('/api/cars/'+carId+'/maintenance',{method:'POST',body:new FormData(f)});
         if(!r.ok)throw new Error(await errorOf(r,'The record could not be saved.'));
-        toast(recordEditId?'Record updated':'Record saved');closeModal('recordPanel');
-        if(!recordEditId&&currentView==='car-detail'&&currentCarId!==carId)go('car/'+carId);else afterRecordChange();
+        toast(editId?'Record updated':'Record saved');
+        if(editId){   // back to the record, as it now reads
+            const fresh=await freshRecord(carId,editId);afterRecordChange();
+            if(fresh)openMaintDetail(fresh);else closeModal('recordPanel');
+        }else{
+            closeModal('recordPanel');
+            if(currentView==='car-detail'&&currentCarId!==carId)go('car/'+carId);else afterRecordChange();
+        }
     }catch(err){toast(err.message,'error')}finally{b.disabled=false;b.textContent=label}
 }
 
