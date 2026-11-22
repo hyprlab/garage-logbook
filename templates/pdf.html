@@ -11,6 +11,22 @@
     <td><span class="l">Vendor</span><span class="v">{{ r.parts_vendor or '—' }}</span></td>
 </tr></table>
 {%- endmacro -%}
+{%- macro parts(r) -%}
+{% if r.parts %}
+<table class="parts">
+    <thead><tr><th>Part</th><th>Vendor</th><th class="r">Cost</th></tr></thead>
+    <tbody>
+    {% for p in r.parts %}<tr><td class="pn">{{ p.name }}</td><td class="pv">{{ p.vendor or '' }}</td><td class="r">{{ p.cost|money }}</td></tr>{% endfor %}
+    {% if r.shipping is not none or r.tax is not none %}
+    <tr class="sum first"><td></td><td>Parts</td><td class="r">{{ r.parts_subtotal|money }}</td></tr>
+    {% if r.shipping is not none %}<tr class="sum"><td></td><td>Shipping</td><td class="r">{{ r.shipping|money }}</td></tr>{% endif %}
+    {% if r.tax is not none %}<tr class="sum"><td></td><td>Tax</td><td class="r">{{ r.tax|money }}</td></tr>{% endif %}
+    {% endif %}
+    <tr class="total"><td></td><td>Total</td><td class="r">{{ r.cost|money }}</td></tr>
+    </tbody>
+</table>
+{% endif %}
+{%- endmacro -%}
 {%- macro attachments(r, cols) -%}
 {% if r.documents %}
 <div class="docs">
@@ -58,7 +74,7 @@ h1, h2, h3, p { margin: 0; }
 /* Masthead */
 .mast { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12pt; border-bottom: 0.75pt solid #d4d7de; margin-bottom: 22pt; }
 .brand { display: flex; align-items: center; gap: 7pt; white-space: nowrap; font-size: 10pt; font-weight: 700; letter-spacing: -0.02em; }
-.brand img { width: 17pt; height: 17pt; }
+.brand-logo, .brand-logo svg { display: block; width: 17pt; height: 17pt; }
 .mast-right { text-align: right; font-size: 8pt; color: #8b90a0; line-height: 1.4; }
 .mast-right b { display: block; font-size: 9pt; font-weight: 600; color: #1a1d26; }
 
@@ -101,20 +117,36 @@ table.records { width: 100%; border-collapse: collapse; }
 .records .pref { color: #8b90a0; font-size: 7.5pt; font-weight: 400; text-decoration: none; margin-left: 5pt; }
 .records .pref::after { content: "page " target-counter(attr(href), page); }
 .records .cost { font-weight: 600; }
-.records tfoot td { border-bottom: 0; border-top: 0.75pt solid #d4d7de; padding-top: 8pt; font-weight: 700; }
-.records tfoot .l { font-weight: 600; color: #5a5f72; }
+.records tr.total td { border-bottom: 0; border-top: 0.75pt solid #d4d7de; padding-top: 8pt; font-weight: 700; }
+.records tr.total .l { font-weight: 600; color: #5a5f72; }
 
 /* Record details */
 .details { break-before: page; }
 .rec { padding-top: 16pt; margin-top: 16pt; border-top: 0.75pt solid #d4d7de; }
 .rec:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
-.rec-head { break-after: avoid; }
+.rec-head { break-inside: avoid; break-after: avoid; }
 .rec-title { font-size: 13.5pt; font-weight: 700; letter-spacing: -0.02em; margin: 3pt 0 9pt; }
 .kicker { font-size: 8pt; color: #5a5f72; }
 table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: #f5f6f8; border-radius: 6pt; margin-bottom: 11pt; break-inside: avoid; }
 .facts td { padding: 7pt 11pt; vertical-align: top; }
 .facts .l { display: block; font-size: 7.5pt; color: #8b90a0; }
 .facts .v { display: block; font-weight: 600; margin-top: 1pt; overflow-wrap: anywhere; }
+/* Parts: a small invoice under the facts. */
+table.parts { width: 100%; border-collapse: collapse; margin-bottom: 12pt; font-size: 9pt; }
+.parts th { font-size: 7.5pt; font-weight: 600; color: #8b90a0; text-align: left; padding: 0 0 4pt; border-bottom: 0.75pt solid #d4d7de; }
+.parts td { padding: 4.5pt 0; border-bottom: 0.5pt solid #e8eaed; vertical-align: top; }
+.parts tr { break-inside: avoid; }
+.parts th + th, .parts td + td { padding-left: 10pt; }
+.parts .r { text-align: right; white-space: nowrap; width: 0.9in; }
+.parts .pv { color: #5a5f72; width: 32%; }
+.parts tr.sum td { border-bottom: 0; padding: 1.5pt 0 1.5pt 10pt; color: #5a5f72; }
+.parts tr.sum td:first-child { padding-left: 0; }
+.parts tr.sum.first td { padding-top: 6pt; }
+.parts tr.total td { border-bottom: 0; padding-top: 6pt; font-weight: 700; }
+/* After shipping and tax, a rule under them; straight after the parts, theirs serves. */
+.parts tr.sum + tr.total td + td { border-top: 0.75pt solid #d4d7de; }
+.parts tr.sum + tr.total td { padding-top: 5pt; }
+.sheet table.parts { font-size: 9.5pt; margin-bottom: 18pt; }
 .notes { white-space: pre-wrap; color: #3a3f50; line-height: 1.6; margin-bottom: 11pt; orphans: 3; widows: 3; }
 .notes-label, .docs-title { font-size: 7.5pt; font-weight: 600; color: #8b90a0; margin-bottom: 3pt; }
 .photos { display: grid; gap: 6pt; margin-bottom: 11pt; }
@@ -140,7 +172,7 @@ table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-l
 <body>
 
 <header class="mast">
-    <div class="brand"><img src="{{ static }}/garage-logbook_logo.svg" alt="">Garage Logbook</div>
+    <div class="brand"><span class="brand-logo">{{ logo }}</span>Garage Logbook</div>
     <div class="mast-right"><b>{% if single %}Service record{% else %}Service history{% endif %}</b>Exported {{ exported|day }}</div>
 </header>
 
@@ -157,6 +189,7 @@ table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-l
     <h1 class="sheet-title">{{ r.title }}</h1>
     <p class="kicker">{{ type_tag(r.maintenance_type) }}</p>
     {{ facts(r) }}
+    {{ parts(r) }}
     {% if r.notes %}<div class="notes-label">Notes</div><p class="notes">{{ r.notes }}</p>{% endif %}
     {{ attachments(r, 3) }}
 </article>
@@ -199,8 +232,9 @@ table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-l
         <td class="r cost">{{ r.cost|money }}</td>
     </tr>
     {% endfor %}
+    {# A body row, not a tfoot: WeasyPrint repeats a tfoot at the foot of every page. #}
+    <tr class="total"><td></td><td class="l">Total, {{ records|length }} record{{ '' if records|length == 1 else 's' }}</td><td></td><td></td><td class="r">{{ total_cost|money }}</td></tr>
     </tbody>
-    <tfoot><tr><td></td><td class="l">Total, {{ records|length }} record{{ '' if records|length == 1 else 's' }}</td><td></td><td></td><td class="r">{{ total_cost|money }}</td></tr></tfoot>
 </table>
 
 {% if detailed %}
@@ -213,6 +247,7 @@ table.facts { width: 100%; border-collapse: separate; border-spacing: 0; table-l
             <h3 class="rec-title">{{ r.title }}</h3>
             {{ facts(r) }}
         </div>
+        {{ parts(r) }}
         {% if r.notes %}<div class="notes-label">Notes</div><p class="notes">{{ r.notes }}</p>{% endif %}
         {{ attachments(r, 3) }}
     </article>

@@ -119,6 +119,13 @@ def _init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS maintenance_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            maintenance_id INTEGER NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+            name TEXT NOT NULL, vendor TEXT, cost REAL,
+            FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_parts_maintenance ON maintenance_parts(maintenance_id);
         CREATE TABLE IF NOT EXISTS service_reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             car_id INTEGER NOT NULL, title TEXT NOT NULL,
@@ -236,6 +243,16 @@ def _init_db():
         conn.commit()
     except Exception as e:
         print(f"Migration reminder interval columns: {e}")
+    # Migration: records gained shipping and tax, which go with their parts.
+    try:
+        cols = [r['name'] for r in conn.execute("PRAGMA table_info(maintenance)").fetchall()]
+        if 'shipping' not in cols:
+            conn.execute("ALTER TABLE maintenance ADD COLUMN shipping REAL")
+        if 'tax' not in cols:
+            conn.execute("ALTER TABLE maintenance ADD COLUMN tax REAL")
+        conn.commit()
+    except Exception as e:
+        print(f"Migration shipping and tax columns: {e}")
     # One-time: fill each user's vendor list from the vendors already on their
     # records. Recorded in app_meta so vendors removed later stay removed.
     try:
@@ -857,6 +874,66 @@ def delete_car(cid):
     return jsonify({'success':True})
 
 # ── Maintenance API ────────────────────────────────────
+# ── Parts ──────────────────────────────────────────────
+# A record can list the parts that went into it, each with a vendor and cost,
+# plus shipping and tax. With parts, the record's cost is their total, so every
+# sum and chart that reads maintenance.cost stays right.
+PARTS_MAX = 100
+
+def parse_money(raw, label):
+    """(value, error) for an optional amount: None when blank."""
+    raw = str(raw if raw is not None else '').strip().replace('$', '').replace(',', '')
+    if not raw: return None, None
+    try: v = round(float(raw), 2)
+    except ValueError: return None, f'{label} must be a number.'
+    if v != v or v in (float('inf'), float('-inf')): return None, f'{label} must be a number.'
+    if v < 0: return None, f'{label} cannot be negative.'
+    return v, None
+
+def parse_parts_input(form):
+    """From a record form: (parts, shipping, tax, error), or parts=None when the
+    form does not carry a parts list (older clients), which leaves them alone."""
+    if 'parts' not in form: return None, None, None, None
+    try: raw = json.loads(form.get('parts') or '[]')
+    except ValueError: return None, None, None, 'The parts list could not be read.'
+    if not isinstance(raw, list): return None, None, None, 'The parts list could not be read.'
+    parts = []
+    for item in raw:
+        if not isinstance(item, dict): return None, None, None, 'The parts list could not be read.'
+        name = ' '.join(str(item.get('name') or '').split())[:200]
+        vendor = clean_vendor_name(str(item.get('vendor') or ''))[:100]
+        cost, err = parse_money(item.get('cost'), 'A part cost')
+        if err: return None, None, None, err
+        if not name and not vendor and cost is None: continue   # a blank line
+        if not name: return None, None, None, 'Each part needs a name.'
+        parts.append({'name': name, 'vendor': vendor or None, 'cost': cost})
+    if len(parts) > PARTS_MAX: return None, None, None, f'A record can list up to {PARTS_MAX} parts.'
+    shipping = tax = None
+    if parts:
+        shipping, err = parse_money(form.get('shipping'), 'Shipping')
+        if err: return None, None, None, err
+        tax, err = parse_money(form.get('tax'), 'Tax')
+        if err: return None, None, None, err
+    return parts, shipping, tax, None
+
+def parts_total(parts, shipping, tax):
+    return round(sum(p['cost'] or 0 for p in parts) + (shipping or 0) + (tax or 0), 2)
+
+def save_parts(conn, mid, parts):
+    conn.execute('DELETE FROM maintenance_parts WHERE maintenance_id=?', (mid,))
+    conn.executemany('INSERT INTO maintenance_parts (maintenance_id,position,name,vendor,cost) VALUES (?,?,?,?,?)',
+                     [(mid, i, p['name'], p['vendor'], p['cost']) for i, p in enumerate(parts)])
+
+def load_parts(conn, mid):
+    return [dict(p) for p in conn.execute('SELECT id,name,vendor,cost FROM maintenance_parts WHERE maintenance_id=? ORDER BY position, id', (mid,)).fetchall()]
+
+def record_out(conn, row):
+    """A record as the API returns it: with its files and parts."""
+    d = dict(row)
+    d['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at', (d['id'],)).fetchall()]
+    d['parts'] = load_parts(conn, d['id'])
+    return d
+
 @app.route('/api/cars/<int:cid>/maintenance', methods=['GET'])
 @login_required
 def get_maintenance(cid):
@@ -866,15 +943,13 @@ def get_maintenance(cid):
     q=request.args.get('q','').strip(); sort=request.args.get('sort','date_desc')
     order = {'date_asc':'service_date ASC','cost_desc':'cost DESC','cost_asc':'cost ASC','odo_desc':'odometer DESC'}.get(sort,'service_date DESC')
     if q:
-        entries = conn.execute(f"SELECT * FROM maintenance WHERE car_id=? AND (title LIKE ? OR maintenance_type LIKE ? OR parts_vendor LIKE ? OR notes LIKE ?) ORDER BY {order}",
-            (cid,f'%{q}%',f'%{q}%',f'%{q}%',f'%{q}%')).fetchall()
+        like = f'%{q}%'
+        entries = conn.execute(f"SELECT * FROM maintenance m WHERE car_id=? AND (title LIKE ? OR maintenance_type LIKE ? OR parts_vendor LIKE ? OR notes LIKE ?"
+            f" OR EXISTS (SELECT 1 FROM maintenance_parts p WHERE p.maintenance_id=m.id AND (p.name LIKE ? OR p.vendor LIKE ?))) ORDER BY {order}",
+            (cid,like,like,like,like,like,like)).fetchall()
     else:
         entries = conn.execute(f'SELECT * FROM maintenance WHERE car_id=? ORDER BY {order}',(cid,)).fetchall()
-    result = []
-    for e in entries:
-        d = dict(e)
-        d['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at',(d['id'],)).fetchall()]
-        result.append(d)
+    result = [record_out(conn, e) for e in entries]
     conn.close()
     return jsonify(result)
 
@@ -890,9 +965,13 @@ def add_maintenance(cid):
     n=request.form.get('notes','').strip()
     if not t or not mt or not sd: conn.close(); return jsonify({'error':'Title, type, date required'}), 400
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
-    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes) VALUES (?,?,?,?,?,?,?,?)',
-        (cid,t,mt,sd,int(odo) if odo else None,v or None,float(c) if c else None,n or None))
+    parts, shipping, tax, err = parse_parts_input(request.form)
+    if err: conn.close(); return jsonify({'error': err}), 400
+    cost = parts_total(parts, shipping, tax) if parts else (float(c) if c else None)
+    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        (cid,t,mt,sd,int(odo) if odo else None,v or None,cost,n or None,shipping,tax))
     mid = cur.lastrowid
+    if parts: save_parts(conn, mid, parts)
     for f in request.files.getlist('gallery'):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,get_file_type(fn)))
@@ -902,8 +981,7 @@ def add_maintenance(cid):
     reset_ids = reset_reminder_baselines(conn, cid, request.form.getlist('reset_reminders'),
                                          int(odo) if odo else None, sd)
     conn.commit()
-    entry = dict(conn.execute('SELECT * FROM maintenance WHERE id=?',(mid,)).fetchone())
-    entry['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=?',(mid,)).fetchall()]
+    entry = record_out(conn, conn.execute('SELECT * FROM maintenance WHERE id=?',(mid,)).fetchone())
     entry['reminders_reset'] = reset_ids
     conn.close()
     return jsonify(entry), 201
@@ -922,8 +1000,17 @@ def update_maintenance(mid):
     n=request.form.get('notes',entry['notes'] or '').strip()
     if not t or not mt or not sd: conn.close(); return jsonify({'error':'Title, type, date required'}), 400
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
-    conn.execute('UPDATE maintenance SET title=?,maintenance_type=?,service_date=?,odometer=?,parts_vendor=?,cost=?,notes=? WHERE id=?',
-        (t,mt,sd,int(odo) if odo else entry['odometer'],v or None,float(c) if c else entry['cost'],n or None,mid))
+    parts, shipping, tax, err = parse_parts_input(request.form)
+    if err: conn.close(); return jsonify({'error': err}), 400
+    cost = float(c) if c else entry['cost']
+    if parts is None:   # no parts list sent: parts, shipping and tax stay as they are
+        shipping, tax = entry['shipping'], entry['tax']
+        if load_parts(conn, mid): cost = entry['cost']
+    else:
+        if parts: cost = parts_total(parts, shipping, tax)
+        save_parts(conn, mid, parts)
+    conn.execute('UPDATE maintenance SET title=?,maintenance_type=?,service_date=?,odometer=?,parts_vendor=?,cost=?,notes=?,shipping=?,tax=? WHERE id=?',
+        (t,mt,sd,int(odo) if odo else entry['odometer'],v or None,cost,n or None,shipping,tax,mid))
     for f in request.files.getlist('gallery'):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,get_file_type(fn)))
@@ -931,8 +1018,7 @@ def update_maintenance(mid):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,'document'))
     conn.commit()
-    updated = dict(conn.execute('SELECT * FROM maintenance WHERE id=?',(mid,)).fetchone())
-    updated['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=?',(mid,)).fetchall()]
+    updated = record_out(conn, conn.execute('SELECT * FROM maintenance WHERE id=?',(mid,)).fetchone())
     conn.close()
     return jsonify(updated)
 
@@ -958,11 +1044,11 @@ def duplicate_maintenance(mid):
     if not entry: conn.close(); return jsonify({'error':'Not found'}), 404
     car = can_access_car(conn, entry['car_id'], g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
-    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes) VALUES (?,?,?,?,?,?,?,?)',
-        (entry['car_id'],entry['title']+' (copy)',entry['maintenance_type'],entry['service_date'],entry['odometer'],entry['parts_vendor'],entry['cost'],entry['notes']))
+    cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        (entry['car_id'],entry['title']+' (copy)',entry['maintenance_type'],entry['service_date'],entry['odometer'],entry['parts_vendor'],entry['cost'],entry['notes'],entry['shipping'],entry['tax']))
+    save_parts(conn, cur.lastrowid, load_parts(conn, mid))
     conn.commit()
-    new_entry = dict(conn.execute('SELECT * FROM maintenance WHERE id=?',(cur.lastrowid,)).fetchone())
-    new_entry['images'] = []
+    new_entry = record_out(conn, conn.execute('SELECT * FROM maintenance WHERE id=?',(cur.lastrowid,)).fetchone())
     conn.close()
     return jsonify(new_entry), 201
 
@@ -1090,19 +1176,23 @@ def export_csv(cid):
     car = can_access_car(conn, cid, g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
     entries = conn.execute('SELECT * FROM maintenance WHERE car_id=? ORDER BY service_date DESC',(cid,)).fetchall()
-    conn.close()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes'])
+    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes','Shipping','Tax','Parts'])
+    def part_text(p):
+        return ', '.join(x for x in (p['name'], p['vendor'], f"{p['cost']:.2f}" if p['cost'] is not None else '') if x)
     for e in entries:
-        writer.writerow([e['title'],e['maintenance_type'],e['service_date'],e['odometer'] or '',e['parts_vendor'] or '',e['cost'] or '',e['notes'] or ''])
+        parts = '; '.join(part_text(p) for p in load_parts(conn, e['id']))
+        writer.writerow([e['title'],e['maintenance_type'],e['service_date'],e['odometer'] or '',e['parts_vendor'] or '',e['cost'] or '',e['notes'] or '',
+                         '' if e['shipping'] is None else e['shipping'],'' if e['tax'] is None else e['tax'],parts])
+    conn.close()
     fname = f"{car['year']}_{car['make']}_{car['model']}_maintenance.csv".replace(' ','_')
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition':f'attachment; filename="{fname}"'})
 
 # ── PDF Export ─────────────────────────────────────────
 # A printable service history, laid out as HTML and rendered by WeasyPrint.
 # One record becomes a record sheet; several become a history with a table of
-# every record and a page of detail for each that has notes, photos or receipts.
+# every record and a page of detail for each that has notes, parts, photos or receipts.
 @app.template_filter('money')
 def fmt_money(v):
     return '—' if v is None or v == '' else f'${float(v):,.2f}'
@@ -1161,6 +1251,8 @@ def pdf_load(conn, cid, ids=None):
         files = [dict(f) for f in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at', (r['id'],)).fetchall()]
         d['photos'] = [f for f in files if f['file_type'] != 'document' and os.path.exists(os.path.join(folder, f['filename']))]
         d['documents'] = [f for f in files if f['file_type'] == 'document' and os.path.exists(os.path.join(folder, f['filename']))]
+        d['parts'] = load_parts(conn, r['id'])
+        d['parts_subtotal'] = sum(p['cost'] or 0 for p in d['parts'])
         records.append(d)
     return car, records
 
@@ -1179,14 +1271,14 @@ def pdf_render(car, records, font_config=None):
         car_photo = 'file://' + os.path.join(uploads, 'cars', car['image'])
     html = render_template('pdf.html', car=car, car_name=f"{car['year']} {car['make']} {car['model']}",
         car_photo=car_photo, owner=car['owner'], records=records, single=len(records) == 1,
-        detailed=[r for r in records if r['notes'] or r['photos'] or r['documents']],
+        detailed=[r for r in records if r['notes'] or r['parts'] or r['photos'] or r['documents']],
         total_cost=sum(r['cost'] or 0 for r in records),
         by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
         first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,
         max_odo=max(odos) if odos else None,
         uploads='file://' + os.path.join(uploads, 'maintenance'),
         static='file://' + os.path.realpath(app.static_folder),
-        exported=date.today(), version=APP_VERSION, static_fonts=pdf_static_fonts())
+        exported=date.today(), version=APP_VERSION, static_fonts=pdf_static_fonts(), logo=pdf_logo())
     # Receipts travel inside the PDF as document attachments, under the names
     # they were uploaded with, so every viewer lists them in its attachments panel.
     attachments, used = [], set()
@@ -1200,6 +1292,21 @@ def pdf_render(car, records, font_config=None):
                 name=name, description=f"{r['title']}, {fmt_day(r['service_date'])}"))
     return HTML(string=html, base_url=app.static_folder, url_fetcher=pdf_url_fetcher()).write_pdf(
         optimize_images=True, jpeg_quality=82, dpi=200, attachments=attachments, font_config=font_config)
+
+_pdf_logo = None
+def pdf_logo():
+    """The logo as inline SVG for the PDF masthead. Its one gradient fades from
+    transparent, which WeasyPrint writes as a tiling pattern a millionth of a
+    point wide; PDFium (Chrome's viewer) then takes half a minute to draw the
+    page. At print size a flat, half-transparent fill looks the same."""
+    global _pdf_logo
+    if _pdf_logo is None:
+        from markupsafe import Markup
+        with open(os.path.join(app.static_folder, 'garage-logbook_logo.svg'), encoding='utf-8') as f:
+            svg = f.read()
+        svg = svg[svg.index('<svg'):].replace('fill:url(#_Linear2);', 'fill:rgb(255,211,29);fill-opacity:0.5;')
+        _pdf_logo = Markup(svg)
+    return _pdf_logo
 
 def pdf_static_fonts():
     """The weights tools/build-pdf-fonts.py built, or none (variable font) without them."""

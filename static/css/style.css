@@ -725,6 +725,46 @@ button.kpi:hover { background: var(--hover); }
 .doc-link svg.i { width: 16px; height: 16px; color: var(--red); }
 .doc-link:hover { border-color: var(--accent); background: var(--wash); }
 
+/* Parts on the record form: part, vendor, cost, remove. */
+.parts { display: flex; flex-direction: column; gap: 8px; }
+.parts-head { display: flex; flex-direction: column; gap: 4px; }
+.parts-cols, .part-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 112px 28px; gap: 8px; align-items: center; }
+.parts-cols { font-size: 12px; color: var(--faint); padding: 0 2px; margin-bottom: -2px; }
+.parts-cols .r { text-align: right; padding-right: 12px; }
+.parts-list { display: flex; flex-direction: column; gap: 8px; }
+.parts-list:empty { display: none; }
+.part-row .input { height: 36px; }
+.parts .affix input, .part-row .affix input {
+  flex: 1; min-width: 0; height: 34px; padding: 0 12px 0 4px; border: 0; background: none; outline: none;
+  font-size: 14px; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums;
+}
+.parts .affix { height: 36px; }
+.parts .affix:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--wash); }
+.parts-add { align-self: flex-start; }
+.parts-add svg.i { width: 15px; height: 15px; }
+.parts-sum { align-self: flex-end; width: min(100%, 272px); display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+.sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; align-items: center; }
+.sum-row .sum-v { text-align: right; padding-right: 13px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.sum-total { padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line-soft); font-weight: 650; color: var(--ink); }
+.sum-total .sum-v { font-weight: 700; }
+/* Cost while parts add it up: shown, not typed in. */
+.affix.is-derived { background: transparent; border-style: dashed; }
+.affix.is-derived input { color: var(--muted); cursor: default; }
+
+/* Parts in the record view: a short invoice. */
+.detail-count { margin-left: 4px; font-weight: 500; color: var(--faint); }
+.pt { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
+.pt-row, .pt-sum { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 14px; font-size: 14px; }
+.pt-row + .pt-row { border-top: 1px solid var(--line-soft); }
+.pt-name { min-width: 0; overflow-wrap: anywhere; }
+.pt-name small { display: block; font-size: 12.5px; color: var(--faint); margin-top: 1px; }
+.pt-cost, .pt-sum span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pt-cost { font-weight: 600; }
+.pt-sum { padding-top: 6px; padding-bottom: 6px; font-size: 13px; color: var(--muted); background: var(--raised); }
+.pt-row + .pt-sum { border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.pt-total { font-size: 14px; font-weight: 650; color: var(--ink); padding-top: 9px; padding-bottom: 10px; }
+.pt-sum + .pt-total { border-top: 1px solid var(--line-soft); margin-top: 4px; }
+
 /* Vendor combobox */
 .combo { position: relative; }
 .combo-menu {
@@ -1024,6 +1064,9 @@ html[data-theme="dark"] .toast.error { background: #4a1f22; color: #ffe1dd; box-
   .overlay { padding: 12px; }
 }
 @media (max-width: 560px) {
+  .part-row { grid-template-columns: minmax(0, 1fr) 104px 28px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+  .part-row > [data-k="name"] { grid-column: 1 / -1; }
+  .parts-cols { display: none; }
   .kpi { padding: 14px; }
   .fleet { grid-template-columns: minmax(0, 1fr); }
   .slideout { width: 100vw; border-left: 0; }

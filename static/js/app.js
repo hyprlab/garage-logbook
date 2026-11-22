@@ -13,7 +13,7 @@ const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 document.addEventListener('DOMContentLoaded',()=>{
     applyPermVisibility();populateUserMenu();initMenus();
-    document.querySelectorAll('[data-vendor-combo]').forEach(initVendorCombo);loadVendors();
+    document.querySelectorAll('[data-vendor-combo]').forEach(initVendorCombo);loadVendors();initPartsForm();
     loadSettings().then(()=>{applyTheme();syncRangeMenu();route();loadSidebarCars()});
     window.addEventListener('hashchange',route);
     if(CURRENT_USER.must_change_password)openModal('forceChangePwModal');
@@ -448,7 +448,7 @@ async function loadMaintenance(){
     $('recordsCount').textContent=q?`${plural(entries.length,'match','matches')}`:(entries.length?plural(entries.length,'record'):'');
     $('maintenanceList').closest('.records-panel').classList.toggle('is-selectable',canSelect());
     $('maintenanceList').innerHTML=entries.length?recordHead(canSelect())+entries.map(e=>recordRow(e,false)).join('')
-        :q?`<div class="empty"><p class="empty-title">No records match “${esc(q)}”</p><p class="empty-text">Search looks at the title, vendor and notes.</p></div>`
+        :q?`<div class="empty"><p class="empty-title">No records match “${esc(q)}”</p><p class="empty-text">Search looks at the title, vendor, notes and parts.</p></div>`
           :`<div class="empty"><p class="empty-title">No records yet</p><p class="empty-text">Log the first service, repair or upgrade for this vehicle.</p>${hasPerm('can_add_records')?`<button class="btn btn--primary" onclick="openRecordPanel()">${ic('plus')}Add record</button>`:''}</div>`;
     // A record deleted since it was ticked drops out of the selection.
     if(!q){const ids=new Set(entries.map(e=>e.id));selectedIds.forEach(id=>{if(!ids.has(id))selectedIds.delete(id)})}
@@ -524,10 +524,11 @@ function renderRecordView(e){
             <h3 class="record-title">${esc(e.title)}</h3>
         </div>
         <div class="detail-grid">${cell('Date',formatDate(e.service_date))}${cell('Odometer',e.odometer?n(e.odometer)+' mi':'—')}${cell('Cost',e.cost!=null&&e.cost!==''?money(e.cost):'—')}${cell('Vendor',esc(e.parts_vendor)||'—')}</div>
+        ${partsTable(e)}
         ${e.notes?`<section><h4 class="detail-label">Notes</h4><p class="detail-notes">${esc(e.notes)}</p></section>`:''}
         ${docs.length?`<section><h4 class="detail-label">Receipts and documents</h4><div class="docs">${docs.map(d=>`<a href="/uploads/maintenance/${attr(d.filename)}" target="_blank" rel="noopener" class="doc-link">${ic('file')}<span>${esc(d.original_name||'Document.pdf')}</span></a>`).join('')}</div></section>`:''}
         ${images.length?`<section><h4 class="detail-label">Photos</h4><div class="gallery">${images.map((img,idx)=>`<img src="${attr(urls[idx])}" alt="" loading="lazy" data-idx="${idx}">`).join('')}</div></section>`:''}
-        ${!e.notes&&!docs.length&&!images.length?`<p class="record-empty">No notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
+        ${!e.notes&&!(e.parts||[]).length&&!docs.length&&!images.length?`<p class="record-empty">No parts, notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
         ${e.created_at?`<p class="record-meta">Logged ${formatDate(e.created_at.slice(0,10))}</p>`:''}`;
     $('viewMaintContent').querySelectorAll('.gallery img').forEach(img=>img.addEventListener('click',()=>openLightbox(urls,+img.dataset.idx)));
     let btns='';
@@ -537,6 +538,18 @@ function renderRecordView(e){
     if(hasPerm('can_add_records'))btns+=`<button class="btn btn--ghost btn--sm" onclick="duplicateMaintenance(${e.id},this)" aria-label="Duplicate record" title="Duplicate record">${ic('copy')}<span class="btn-label">Duplicate</span></button>`;
     if(hasPerm('can_edit_records'))btns+=`<button class="btn btn--primary btn--sm" onclick="openRecordPanel(viewedRecord)">${ic('edit')}Edit</button>`;
     $('viewMaintActions').innerHTML=btns;
+}
+// The parts on a record, as a short invoice: each part with its vendor, then
+// shipping and tax when there are any, then the total.
+function partsTable(e){
+    const parts=e.parts||[];if(!parts.length)return'';
+    const amt=v=>v!=null&&v!==''?money(v):'—',sub=parts.reduce((a,p)=>a+(+p.cost||0),0),extra=e.shipping!=null||e.tax!=null;
+    const sum=(l,v,cls='')=>`<div class="pt-sum${cls}"><span>${l}</span><span>${v}</span></div>`;
+    return`<section><h4 class="detail-label">Parts <span class="detail-count">${parts.length}</span></h4><div class="pt">
+        ${parts.map(p=>`<div class="pt-row"><span class="pt-name">${esc(p.name)}${p.vendor?`<small>${esc(p.vendor)}</small>`:''}</span><span class="pt-cost">${amt(p.cost)}</span></div>`).join('')}
+        ${extra?sum('Parts',money(sub)):''}${e.shipping!=null?sum('Shipping',money(e.shipping)):''}${e.tax!=null?sum('Tax',money(e.tax)):''}
+        ${sum('Total',amt(e.cost),' pt-total')}
+    </div></section>`;
 }
 // The record as it is now, after a save: from the list if it is showing,
 // otherwise from the vehicle's full list (a search may be hiding it).
@@ -569,6 +582,7 @@ async function openRecordPanel(rec){
     if(!editing)viewedRecord=null;
     f.reset();recordEditId=editing?rec.id:null;f.maint_id.value=recordEditId||'';
     $('galleryThumbs').innerHTML='';$('recordDocList').innerHTML='';
+    $('partsList').innerHTML='';(editing?rec.parts||[]:[]).forEach(p=>addPartRow(p));
     const sel=$('recordCar');
     sel.innerHTML=carsCache.map(c=>`<option value="${c.id}">${esc(carName(c))}</option>`).join('');
     sel.value=String(editing?rec.car_id:(currentCarId||carsCache[0].id));
@@ -579,12 +593,14 @@ async function openRecordPanel(rec){
     if(editing){
         f.title.value=rec.title;f.service_date.value=rec.service_date;f.odometer.value=rec.odometer??'';
         f.parts_vendor.value=rec.parts_vendor||'';f.cost.value=rec.cost??'';f.notes.value=rec.notes||'';
+        const amt=v=>v!=null&&v!==''?(+v).toFixed(2):'';f.shipping.value=amt(rec.shipping);f.tax.value=amt(rec.tax);
         const ty=f.querySelector(`[name="maintenance_type"][value="${rec.maintenance_type}"]`);if(ty)ty.checked=true;
         $('maintResetBlock').classList.add('hidden');maintResetReminders=[];
     }else{
         f.service_date.valueAsDate=new Date();
         loadMaintResetOptions(+sel.value);
     }
+    updatePartsTotals();
     const wasOpen=$('recordPanel').classList.contains('is-open');
     setRecordMode(editing?'edit':'add');openModal('recordPanel');
     setTimeout(()=>f.title.focus({preventScroll:true}),wasOpen?40:330);
@@ -598,6 +614,9 @@ function onRecordCarChange(){loadMaintResetOptions(+$('recordCar').value)}
 function openEditMaintModal(id){const e=maintEntries.find(x=>x.id===id);if(e)openRecordPanel(e)}
 async function submitRecord(e){
     e.preventDefault();const f=e.target,b=$('recordSubmitBtn'),label=b.textContent,carId=+$('recordCar').value,editId=recordEditId;
+    const unnamed=[...$('partsList').children].find(row=>{const p=readPartRow(row);return!p.name&&(p.vendor||p.cost!=='')});
+    if(unnamed){toast('Each part needs a name.','error');unnamed.querySelector('[data-k="name"]').focus();return}
+    f.parts.value=JSON.stringify(readParts());
     b.disabled=true;b.textContent='Saving…';
     try{
         const r=editId?await api('/api/maintenance/'+editId,{method:'PUT',body:new FormData(f)})
@@ -612,6 +631,52 @@ async function submitRecord(e){
             if(currentView==='car-detail'&&currentCarId!==carId)go('car/'+carId);else afterRecordChange();
         }
     }catch(err){toast(err.message,'error')}finally{b.disabled=false;b.textContent=label}
+}
+
+// ————— Parts on the record form —————
+// Rows are plain inputs without names; on save they go to the server as one
+// JSON list in the hidden "parts" field. Blank rows are dropped.
+function addPartRow(p,focus){
+    const list=$('partsList'),rows=list.children,prev=rows.length?readPartRow(rows[rows.length-1]).vendor:'';
+    // A new line starts with the vendor of the one above it, or the record's.
+    const vendor=p?p.vendor||'':prev||$('recordForm').parts_vendor.value.trim();
+    list.insertAdjacentHTML('beforeend',`<div class="part-row">
+        <input type="text" class="input" data-k="name" maxlength="200" placeholder="Part" aria-label="Part" autocomplete="off" value="${attr(p?p.name:'')}">
+        <div class="combo"><input type="text" class="input" data-k="vendor" maxlength="100" placeholder="Vendor" aria-label="Vendor" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" value="${attr(vendor)}"><div class="combo-menu" role="listbox"></div></div>
+        <span class="affix"><span class="affix-pre">$</span><input type="number" data-k="cost" min="0" step="0.01" placeholder="0.00" aria-label="Cost" value="${p&&p.cost!=null?(+p.cost).toFixed(2):''}"></span>
+        <button type="button" class="iconbtn iconbtn--sm iconbtn--danger" onclick="removePartRow(this)" aria-label="Remove part" title="Remove part">${ic('close')}</button>
+    </div>`);
+    const row=list.lastElementChild;initVendorCombo(row.querySelector('[data-k="vendor"]'));
+    updatePartsTotals();
+    if(focus)row.querySelector('[data-k="name"]').focus();
+    return row;
+}
+function removePartRow(btn){
+    const row=btn.closest('.part-row'),next=row.nextElementSibling||row.previousElementSibling;row.remove();updatePartsTotals();
+    (next?next.querySelector('[data-k="name"]'):document.querySelector('.parts-add')).focus();
+}
+function readPartRow(row){const v=k=>row.querySelector(`[data-k="${k}"]`).value.trim();return{name:v('name'),vendor:v('vendor'),cost:v('cost')}}
+function readParts(){return[...$('partsList').children].map(readPartRow).filter(p=>p.name||p.vendor||p.cost!=='')}
+// With parts, Cost is theirs plus shipping and tax, and stops being typed in.
+function updatePartsTotals(){
+    const f=$('recordForm'),has=$('partsList').children.length>0,parts=readParts();
+    const sub=parts.reduce((a,p)=>a+(+p.cost||0),0),total=sub+(+f.shipping.value||0)+(+f.tax.value||0);
+    $('partsCols').hidden=!has;$('partsSum').hidden=!has;$('partsHint').hidden=has;
+    $('partsSubtotal').textContent=money(sub);$('partsTotal').textContent=money(total);
+    f.cost.readOnly=has;f.cost.tabIndex=has?-1:0;f.cost.closest('.affix').classList.toggle('is-derived',has);$('costHint').hidden=!has;
+    if(has)f.cost.value=total.toFixed(2);
+}
+function initPartsForm(){
+    const list=$('partsList'),f=$('recordForm');
+    list.addEventListener('input',updatePartsTotals);
+    f.shipping.addEventListener('input',updatePartsTotals);f.tax.addEventListener('input',updatePartsTotals);
+    // Enter in a part line goes to a new line instead of saving the record.
+    list.addEventListener('keydown',e=>{
+        if(e.key!=='Enter'||e.defaultPrevented||!e.target.matches('input'))return;
+        e.preventDefault();const row=e.target.closest('.part-row');
+        if(row===list.lastElementChild){if(readPartRow(row).name)addPartRow(null,true)}
+        else row.nextElementSibling.querySelector('[data-k="name"]').focus();
+    });
 }
 
 // Counters to restart from the record being logged, rather than relying on the
