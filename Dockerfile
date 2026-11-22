@@ -3,7 +3,7 @@ LABEL maintainer="Hyprlab"
 LABEL description="Garage Logbook - Car Maintenance Tracker"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
 LABEL org.opencontainers.image.source="https://github.com/hyprlab/garage-logbook"
-LABEL org.opencontainers.image.version="0.4.0"
+LABEL org.opencontainers.image.version="1.0.0"
 # Pango renders the PDF exports (WeasyPrint).
 RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 libpango-1.0-0 libpangoft2-1.0-0 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
