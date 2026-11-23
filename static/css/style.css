@@ -628,7 +628,7 @@ button.kpi:hover { background: var(--hover); }
 .modal-foot .spacer { flex: 1; }
 .modal > form { display: contents; }
 
-/* The record and vehicle forms: a full-height panel down the right edge, over
+/* The record, vehicle and reminder forms: a full-height panel down the right edge, over
    the topbar, so the page it adds to stays in view beside it. It comes in from
    the right and leaves the same way. */
 .overlay--side { padding: 0; align-items: stretch; justify-content: flex-end; }
