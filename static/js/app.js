@@ -677,7 +677,7 @@ function updatePartsTotals(){
     const f=$('recordForm'),rows=$('partsList').children.length>0,labor=!$('laborRow').hidden,has=rows||labor;
     const sub=readParts().reduce((a,p)=>a+(+p.cost||0),0);
     const total=sub+['labor','shipping','tax'].reduce((a,k)=>a+(+f[k].value||0),0);
-    $('partsCols').hidden=!rows;$('partsSubtotalRow').hidden=!rows;$('partsSum').hidden=!has;$('partsHint').hidden=has;
+    $('partsCols').hidden=!rows;$('partsSubtotalRow').hidden=!rows;$('partsSum').hidden=!has;
     $('partsSubtotal').textContent=money(sub);$('partsTotal').textContent=money(total);
     f.cost.readOnly=has;f.cost.tabIndex=has?-1:0;f.cost.closest('.affix').classList.toggle('is-derived',has);$('costHint').hidden=!has;
     if(has)f.cost.value=total.toFixed(2);
