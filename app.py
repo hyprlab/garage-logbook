@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar, unicodedata, zipfile
+from urllib.parse import urlsplit
 from datetime import date
 try:
     import fcntl
@@ -126,6 +127,13 @@ def _init_db():
             FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_parts_maintenance ON maintenance_parts(maintenance_id);
+        CREATE TABLE IF NOT EXISTS maintenance_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            maintenance_id INTEGER NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+            url TEXT NOT NULL, label TEXT,
+            FOREIGN KEY (maintenance_id) REFERENCES maintenance(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_links_maintenance ON maintenance_links(maintenance_id);
         CREATE TABLE IF NOT EXISTS service_reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             car_id INTEGER NOT NULL, title TEXT NOT NULL,
@@ -136,6 +144,13 @@ def _init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS reminder_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reminder_id INTEGER NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+            url TEXT NOT NULL, label TEXT,
+            FOREIGN KEY (reminder_id) REFERENCES service_reminders(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_links_reminder ON reminder_links(reminder_id);
         CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -430,6 +445,12 @@ def reset_reminder_baselines(conn, cid, ids, odo, service_date):
             conn.execute('UPDATE service_reminders SET last_done_odometer=? WHERE id=?', (int(odo), rid))
         done.append(rid)
     return done
+
+def reminder_out(conn, rem):
+    """A reminder as the vehicle page shows it: its due state and its links."""
+    d = reminder_status(conn, rem)
+    d['links'] = load_links(conn, 'reminder', rem['id'])
+    return d
 
 def reminder_sort_key(r):
     """Soonest-due first across both interval modes, baseline-less rows last."""
@@ -935,11 +956,65 @@ def save_parts(conn, mid, parts):
 def load_parts(conn, mid):
     return [dict(p) for p in conn.execute('SELECT id,name,vendor,cost FROM maintenance_parts WHERE maintenance_id=? ORDER BY position, id', (mid,)).fetchall()]
 
+# ── Links ──────────────────────────────────────────────
+# Records and reminders can each keep links: where to buy a part, a diagram,
+# the manual, a how-to video. A link is a web address and an optional label.
+LINKS_MAX = 50
+LINK_TABLES = {'maintenance': ('maintenance_links', 'maintenance_id'), 'reminder': ('reminder_links', 'reminder_id')}
+
+def clean_link_url(raw):
+    """(url, error): http and https only, so a stored link can never run
+    script when opened. An address typed without a scheme gets https://."""
+    u = str(raw or '').strip()
+    if not u: return None, None
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', u): u = 'https://' + u.lstrip('/')
+    if len(u) > 2000: return None, 'A link can be at most 2,000 characters.'
+    try: parts = urlsplit(u)
+    except ValueError: parts = None
+    if not parts or parts.scheme.lower() not in ('http', 'https') or not parts.hostname or any(c.isspace() for c in u):
+        return None, f'"{str(raw).strip()[:80]}" is not a web address. Use one that starts with http or https.'
+    return u, None
+
+def parse_links_input(raw):
+    """(links, error) from a list, or the JSON of one. links is None when
+    nothing was sent (older clients), which leaves the stored links alone."""
+    if raw is None: return None, None
+    if isinstance(raw, str):
+        try: raw = json.loads(raw or '[]')
+        except ValueError: return None, 'The links could not be read.'
+    if not isinstance(raw, list): return None, 'The links could not be read.'
+    links = []
+    for item in raw:
+        if not isinstance(item, dict): return None, 'The links could not be read.'
+        label = ' '.join(str(item.get('label') or '').split())[:200]
+        url, err = clean_link_url(item.get('url'))
+        if err: return None, err
+        if not url:
+            if label: return None, 'Each link needs a web address.'
+            continue   # a blank line
+        links.append({'url': url, 'label': label or None})
+    if len(links) > LINKS_MAX: return None, f'Up to {LINKS_MAX} links can be added.'
+    return links, None
+
+def save_links(conn, kind, owner_id, links):
+    table, col = LINK_TABLES[kind]
+    conn.execute(f'DELETE FROM {table} WHERE {col}=?', (owner_id,))
+    conn.executemany(f'INSERT INTO {table} ({col},position,url,label) VALUES (?,?,?,?)',
+                     [(owner_id, i, l['url'], l['label']) for i, l in enumerate(links)])
+
+def load_links(conn, kind, owner_id):
+    table, col = LINK_TABLES[kind]
+    return [dict(l) for l in conn.execute(f'SELECT id,url,label FROM {table} WHERE {col}=? ORDER BY position, id', (owner_id,)).fetchall()]
+
+def link_text(l):
+    return f"{l['label']} ({l['url']})" if l['label'] else l['url']
+
 def record_out(conn, row):
-    """A record as the API returns it: with its files and parts."""
+    """A record as the API returns it: with its files, parts and links."""
     d = dict(row)
     d['images'] = [dict(i) for i in conn.execute('SELECT * FROM maintenance_images WHERE maintenance_id=? ORDER BY created_at', (d['id'],)).fetchall()]
     d['parts'] = load_parts(conn, d['id'])
+    d['links'] = load_links(conn, 'maintenance', d['id'])
     return d
 
 @app.route('/api/cars/<int:cid>/maintenance', methods=['GET'])
@@ -953,8 +1028,9 @@ def get_maintenance(cid):
     if q:
         like = f'%{q}%'
         entries = conn.execute(f"SELECT * FROM maintenance m WHERE car_id=? AND (title LIKE ? OR maintenance_type LIKE ? OR parts_vendor LIKE ? OR notes LIKE ?"
-            f" OR EXISTS (SELECT 1 FROM maintenance_parts p WHERE p.maintenance_id=m.id AND (p.name LIKE ? OR p.vendor LIKE ?))) ORDER BY {order}",
-            (cid,like,like,like,like,like,like)).fetchall()
+            f" OR EXISTS (SELECT 1 FROM maintenance_parts p WHERE p.maintenance_id=m.id AND (p.name LIKE ? OR p.vendor LIKE ?))"
+            f" OR EXISTS (SELECT 1 FROM maintenance_links l WHERE l.maintenance_id=m.id AND (l.label LIKE ? OR l.url LIKE ?))) ORDER BY {order}",
+            (cid,like,like,like,like,like,like,like,like)).fetchall()
     else:
         entries = conn.execute(f'SELECT * FROM maintenance WHERE car_id=? ORDER BY {order}',(cid,)).fetchall()
     result = [record_out(conn, e) for e in entries]
@@ -975,12 +1051,15 @@ def add_maintenance(cid):
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
     parts, extras, err = parse_parts_input(request.form)
     if err: conn.close(); return jsonify({'error': err}), 400
+    links, err = parse_links_input(request.form.get('links'))
+    if err: conn.close(); return jsonify({'error': err}), 400
     parts, extras = parts or [], extras or dict(NO_EXTRAS)
     cost = parts_total(parts, extras) if itemized(parts, extras) else (float(c) if c else None)
     cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,labor,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
         (cid,t,mt,sd,int(odo) if odo else None,v or None,cost,n or None,extras['labor'],extras['shipping'],extras['tax']))
     mid = cur.lastrowid
     if parts: save_parts(conn, mid, parts)
+    if links: save_links(conn, 'maintenance', mid, links)
     for f in request.files.getlist('gallery'):
         fn = save_upload(f,'maintenance')
         if fn: conn.execute('INSERT INTO maintenance_images (maintenance_id,filename,original_name,file_type) VALUES (?,?,?,?)',(mid,fn,f.filename,get_file_type(fn)))
@@ -1011,6 +1090,9 @@ def update_maintenance(mid):
     if mt not in ('Repair','Maintenance','Upgrade','Inspection'): conn.close(); return jsonify({'error':'Invalid type'}), 400
     parts, extras, err = parse_parts_input(request.form)
     if err: conn.close(); return jsonify({'error': err}), 400
+    links, err = parse_links_input(request.form.get('links'))
+    if err: conn.close(); return jsonify({'error': err}), 400
+    if links is not None: save_links(conn, 'maintenance', mid, links)
     cost = float(c) if c else entry['cost']
     if parts is None:   # no parts list sent: parts, labor, shipping and tax stay as they are
         extras = {k: entry[k] for k in COST_PARTS}
@@ -1056,6 +1138,7 @@ def duplicate_maintenance(mid):
     cur = conn.execute('INSERT INTO maintenance (car_id,title,maintenance_type,service_date,odometer,parts_vendor,cost,notes,labor,shipping,tax) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
         (entry['car_id'],entry['title']+' (copy)',entry['maintenance_type'],entry['service_date'],entry['odometer'],entry['parts_vendor'],entry['cost'],entry['notes'],entry['labor'],entry['shipping'],entry['tax']))
     save_parts(conn, cur.lastrowid, load_parts(conn, mid))
+    save_links(conn, 'maintenance', cur.lastrowid, load_links(conn, 'maintenance', mid))
     conn.commit()
     new_entry = record_out(conn, conn.execute('SELECT * FROM maintenance WHERE id=?',(cur.lastrowid,)).fetchone())
     conn.close()
@@ -1098,7 +1181,7 @@ def get_reminders(cid):
     car = can_access_car(conn, cid, g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
     rows = conn.execute('SELECT * FROM service_reminders WHERE car_id=? ORDER BY title', (cid,)).fetchall()
-    out = [reminder_status(conn, r) for r in rows]
+    out = [reminder_out(conn, r) for r in rows]
     conn.close()
     # soonest first, with anything lacking a baseline last
     out.sort(key=reminder_sort_key)
@@ -1110,15 +1193,18 @@ def add_reminder(cid):
     conn = get_db()
     car = can_access_car(conn, cid, g.user)
     if not car: conn.close(); return jsonify({'error':'Not found'}), 404
-    f, err = parse_reminder_input(request.get_json(silent=True) or request.form)
+    data = request.get_json(silent=True) or request.form
+    f, err = parse_reminder_input(data)
+    if not err: links, err = parse_links_input(data.get('links'))
     if err: conn.close(); return jsonify({'error': err}), 400
     cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_type,interval_miles,interval_months,last_done_odometer,last_done_date,notes)'
                        ' VALUES (?,?,?,?,?,?,?,?)',
                        (cid, f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
                         f['last_done_odometer'], f['last_done_date'], f['notes']))
+    if links: save_links(conn, 'reminder', cur.lastrowid, links)
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (cur.lastrowid,)).fetchone()
-    out = reminder_status(conn, row)
+    out = reminder_out(conn, row)
     conn.close()
     return jsonify(out), 201
 
@@ -1129,15 +1215,18 @@ def update_reminder(rid):
     rem = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
     if not rem: conn.close(); return jsonify({'error':'Not found'}), 404
     if not can_access_car(conn, rem['car_id'], g.user): conn.close(); return jsonify({'error':'Not found'}), 404
-    f, err = parse_reminder_input(request.get_json(silent=True) or request.form, rem)
+    data = request.get_json(silent=True) or request.form
+    f, err = parse_reminder_input(data, rem)
+    if not err: links, err = parse_links_input(data.get('links'))
     if err: conn.close(); return jsonify({'error': err}), 400
+    if links is not None: save_links(conn, 'reminder', rid, links)
     conn.execute('UPDATE service_reminders SET title=?,interval_type=?,interval_miles=?,interval_months=?,'
                  'last_done_odometer=?,last_done_date=?,notes=? WHERE id=?',
                  (f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
                   f['last_done_odometer'], f['last_done_date'], f['notes'], rid))
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
-    out = reminder_status(conn, row)
+    out = reminder_out(conn, row)
     conn.close()
     return jsonify(out)
 
@@ -1187,13 +1276,14 @@ def export_csv(cid):
     entries = conn.execute('SELECT * FROM maintenance WHERE car_id=? ORDER BY service_date DESC',(cid,)).fetchall()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes','Labor','Shipping','Tax','Parts'])
+    writer.writerow(['Title','Type','Service Date','Odometer','Vendor','Cost','Notes','Labor','Shipping','Tax','Parts','Links'])
     def part_text(p):
         return ', '.join(x for x in (p['name'], p['vendor'], f"{p['cost']:.2f}" if p['cost'] is not None else '') if x)
     for e in entries:
         parts = '; '.join(part_text(p) for p in load_parts(conn, e['id']))
         writer.writerow([e['title'],e['maintenance_type'],e['service_date'],e['odometer'] or '',e['parts_vendor'] or '',e['cost'] or '',e['notes'] or '',
-                         *('' if e[k] is None else e[k] for k in COST_PARTS),parts])
+                         *('' if e[k] is None else e[k] for k in COST_PARTS),parts,
+                         '; '.join(link_text(l) for l in load_links(conn, 'maintenance', e['id']))])
     conn.close()
     fname = f"{car['year']}_{car['make']}_{car['model']}_maintenance.csv".replace(' ','_')
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition':f'attachment; filename="{fname}"'})
@@ -1262,6 +1352,7 @@ def pdf_load(conn, cid, ids=None):
         d['documents'] = [f for f in files if f['file_type'] == 'document' and os.path.exists(os.path.join(folder, f['filename']))]
         d['parts'] = load_parts(conn, r['id'])
         d['parts_subtotal'] = sum(p['cost'] or 0 for p in d['parts'])
+        d['links'] = load_links(conn, 'maintenance', r['id'])
         records.append(d)
     return car, records
 
@@ -1280,7 +1371,7 @@ def pdf_render(car, records, font_config=None):
         car_photo = 'file://' + os.path.join(uploads, 'cars', car['image'])
     html = render_template('pdf.html', car=car, car_name=f"{car['year']} {car['make']} {car['model']}",
         car_photo=car_photo, owner=car['owner'], records=records, single=len(records) == 1,
-        detailed=[r for r in records if r['notes'] or r['parts'] or r['labor'] is not None or r['photos'] or r['documents']],
+        detailed=[r for r in records if r['notes'] or r['parts'] or r['labor'] is not None or r['links'] or r['photos'] or r['documents']],
         total_cost=sum(r['cost'] or 0 for r in records),
         by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
         first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,

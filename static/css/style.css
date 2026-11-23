@@ -600,6 +600,11 @@ button.kpi:hover { background: var(--hover); }
 .rem-val { grid-column: 2; grid-row: 1; text-align: right; font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rem-lbl { grid-column: 2; grid-row: 2; text-align: right; font-size: 12px; color: var(--faint); white-space: nowrap; }
 .rem .meter { grid-column: 1 / -1; margin-top: 7px; }
+.rem-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; }
+.rem-link { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; font-size: 12.5px; font-weight: 560; color: var(--accent); }
+.rem-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rem-link svg.i { width: 14px; height: 14px; }
+a.rem-link:hover span { text-decoration: underline; }
 .rem-actions { position: absolute; right: 12px; bottom: 16px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; background: var(--surface); border-radius: 8px; }
 .rem:hover .rem-actions, .rem:focus-within .rem-actions { opacity: 1; }
 .rem:hover .meter { visibility: hidden; }
@@ -724,6 +729,17 @@ button.kpi:hover { background: var(--hover); }
 .doc-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-link svg.i { width: 16px; height: 16px; color: var(--red); }
 .doc-link:hover { border-color: var(--accent); background: var(--wash); }
+/* A record's links in the panel: the label, with the site under it. */
+.link-list { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
+.link-item { display: flex; align-items: center; gap: 12px; padding: 9px 14px; font-size: 14px; color: var(--ink); transition: background .12s; }
+.link-item + .link-item { border-top: 1px solid var(--line-soft); }
+a.link-item:hover { background: var(--hover); }
+.link-item svg.i { width: 17px; height: 17px; color: var(--accent); }
+.link-text { display: flex; flex-direction: column; min-width: 0; }
+.link-text b, .link-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-text b { font-weight: 560; }
+.link-text small { font-size: 12.5px; color: var(--faint); }
+.link-text small:empty { display: none; }
 
 /* Parts on the record form: part, vendor, cost, remove. */
 .parts { display: flex; flex-direction: column; gap: 8px; }
@@ -744,6 +760,12 @@ button.kpi:hover { background: var(--hover); }
 .parts-add svg.i { width: 15px; height: 15px; }
 .parts-sum { align-self: flex-end; width: min(100%, 308px); display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
 .sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px 28px; gap: 8px; align-items: center; }
+
+/* Links on the record and reminder forms: a label and a web address per line. */
+.links-edit { display: flex; flex-direction: column; gap: 8px; }
+.links-edit:empty { display: none; }
+.link-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 28px; gap: 8px; align-items: center; }
+.link-row .input { height: 36px; }
 .sum-row .sum-v { text-align: right; padding-right: 13px; font-variant-numeric: tabular-nums; color: var(--ink); }
 .sum-total { padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line-soft); font-weight: 650; color: var(--ink); }
 .sum-total .sum-v { font-weight: 700; }
@@ -1068,6 +1090,8 @@ html[data-theme="dark"] .toast.error { background: #4a1f22; color: #ffe1dd; box-
   .part-row > [data-k="name"] { grid-column: 1 / -1; }
   .parts-cols { display: none; }
   .sum-row { grid-template-columns: minmax(0, 1fr) 104px 28px; }
+  .link-row { grid-template-columns: minmax(0, 1fr) 28px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+  .link-row > [data-k="url"] { grid-column: 1 / -1; grid-row: 2; }
   .kpi { padding: 14px; }
   .fleet { grid-template-columns: minmax(0, 1fr); }
   .slideout { width: 100vw; border-left: 0; }

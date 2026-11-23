@@ -25,6 +25,14 @@
 </table>
 {% endif %}
 {%- endmacro -%}
+{%- macro links(r) -%}
+{% if r.links %}
+<div class="links">
+    <div class="docs-title">Links</div>
+    {% for l in r.links %}<div class="link">{% if l.label %}<span class="link-label">{{ l.label }}</span>{% endif %}<a href="{{ l.url }}">{{ l.url }}</a></div>{% endfor %}
+</div>
+{% endif %}
+{%- endmacro -%}
 {%- macro attachments(r, cols) -%}
 {% if r.documents %}
 <div class="docs">
@@ -155,6 +163,10 @@ table.parts--sums { width: calc(32% + 0.9in); margin-left: auto; }
 .photos--2 { grid-template-columns: 1fr 1fr; }
 .photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 5pt; break-inside: avoid; }
 .docs { margin-bottom: 12pt; break-inside: avoid; }
+.links { margin-bottom: 12pt; }
+.link { padding: 2pt 0; break-inside: avoid; font-size: 8.5pt; overflow-wrap: anywhere; }
+.link-label { font-weight: 600; margin-right: 6pt; }
+.link a { color: #2f5fd8; text-decoration: none; }
 .doc { display: inline-block; margin: 2pt 6pt 2pt 0; padding: 3pt 8pt; border: 0.75pt solid #d4d7de; border-radius: 5pt; font-size: 8pt; font-weight: 400; color: #1a1d26; text-decoration: none; }
 
 /* A single record */
@@ -192,6 +204,7 @@ table.parts--sums { width: calc(32% + 0.9in); margin-left: auto; }
     {{ facts(r) }}
     {{ parts(r) }}
     {% if r.notes %}<div class="notes-label">Notes</div><p class="notes">{{ r.notes }}</p>{% endif %}
+    {{ links(r) }}
     {{ attachments(r, 3) }}
 </article>
 
@@ -250,6 +263,7 @@ table.parts--sums { width: calc(32% + 0.9in); margin-left: auto; }
         </div>
         {{ parts(r) }}
         {% if r.notes %}<div class="notes-label">Notes</div><p class="notes">{{ r.notes }}</p>{% endif %}
+        {{ links(r) }}
         {{ attachments(r, 3) }}
     </article>
     {% endfor %}

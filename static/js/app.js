@@ -13,7 +13,7 @@ const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 document.addEventListener('DOMContentLoaded',()=>{
     applyPermVisibility();populateUserMenu();initMenus();
-    document.querySelectorAll('[data-vendor-combo]').forEach(initVendorCombo);loadVendors();initPartsForm();
+    document.querySelectorAll('[data-vendor-combo]').forEach(initVendorCombo);loadVendors();initPartsForm();initLinkLists();
     loadSettings().then(()=>{applyTheme();syncRangeMenu();route();loadSidebarCars()});
     window.addEventListener('hashchange',route);
     if(CURRENT_USER.must_change_password)openModal('forceChangePwModal');
@@ -526,9 +526,10 @@ function renderRecordView(e){
         <div class="detail-grid">${cell('Date',formatDate(e.service_date))}${cell('Odometer',e.odometer?n(e.odometer)+' mi':'—')}${cell('Cost',e.cost!=null&&e.cost!==''?money(e.cost):'—')}${cell('Vendor',esc(e.parts_vendor)||'—')}</div>
         ${partsTable(e)}
         ${e.notes?`<section><h4 class="detail-label">Notes</h4><p class="detail-notes">${esc(e.notes)}</p></section>`:''}
+        ${(e.links||[]).length?`<section><h4 class="detail-label">Links <span class="detail-count">${e.links.length}</span></h4><div class="link-list">${e.links.map(linkItem).join('')}</div></section>`:''}
         ${docs.length?`<section><h4 class="detail-label">Receipts and documents</h4><div class="docs">${docs.map(d=>`<a href="/uploads/maintenance/${attr(d.filename)}" target="_blank" rel="noopener" class="doc-link">${ic('file')}<span>${esc(d.original_name||'Document.pdf')}</span></a>`).join('')}</div></section>`:''}
         ${images.length?`<section><h4 class="detail-label">Photos</h4><div class="gallery">${images.map((img,idx)=>`<img src="${attr(urls[idx])}" alt="" loading="lazy" data-idx="${idx}">`).join('')}</div></section>`:''}
-        ${!e.notes&&!(e.parts||[]).length&&e.labor==null&&!docs.length&&!images.length?`<p class="record-empty">No parts, notes, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
+        ${!e.notes&&!(e.parts||[]).length&&e.labor==null&&!(e.links||[]).length&&!docs.length&&!images.length?`<p class="record-empty">No parts, notes, links, photos or receipts on this record.${hasPerm('can_edit_records')?' Edit it to add some.':''}</p>`:''}
         ${e.created_at?`<p class="record-meta">Logged ${formatDate(e.created_at.slice(0,10))}</p>`:''}`;
     $('viewMaintContent').querySelectorAll('.gallery img').forEach(img=>img.addEventListener('click',()=>openLightbox(urls,+img.dataset.idx)));
     let btns='';
@@ -585,6 +586,7 @@ async function openRecordPanel(rec){
     f.reset();recordEditId=editing?rec.id:null;f.maint_id.value=recordEditId||'';
     $('galleryThumbs').innerHTML='';$('recordDocList').innerHTML='';
     $('partsList').innerHTML='';(editing?rec.parts||[]:[]).forEach(p=>addPartRow(p));
+    $('recordLinks').innerHTML='';(editing?rec.links||[]:[]).forEach(l=>addLinkRow('recordLinks',l));
     const hasLabor=editing&&rec.labor!=null;$('laborRow').hidden=!hasLabor;$('laborAdd').hidden=hasLabor;
     const sel=$('recordCar');
     sel.innerHTML=carsCache.map(c=>`<option value="${c.id}">${esc(carName(c))}</option>`).join('');
@@ -620,6 +622,8 @@ async function submitRecord(e){
     const unnamed=[...$('partsList').children].find(row=>{const p=readPartRow(row);return!p.name&&(p.vendor||p.cost!=='')});
     if(unnamed){toast('Each part needs a name.','error');unnamed.querySelector('[data-k="name"]').focus();return}
     f.parts.value=JSON.stringify(readParts());
+    if(!checkLinks('recordLinks'))return;
+    f.links.value=JSON.stringify(readLinks('recordLinks'));
     b.disabled=true;b.textContent='Saving…';
     try{
         const r=editId?await api('/api/maintenance/'+editId,{method:'PUT',body:new FormData(f)})
@@ -712,6 +716,65 @@ function renderMaintResetOptions(){
     }).join('');
 }
 
+// ————— Links on records and reminders —————
+// Like parts, the rows are inputs without names; on save they go to the server
+// as one list, blank rows dropped. The server keeps only http and https links.
+function addLinkRow(listId,l,focus){
+    const list=$(listId);
+    list.insertAdjacentHTML('beforeend',`<div class="link-row">
+        <input type="text" class="input" data-k="label" maxlength="200" placeholder="Label" aria-label="Label" autocomplete="off" value="${attr(l&&l.label||'')}">
+        <input type="text" class="input" data-k="url" maxlength="2000" inputmode="url" placeholder="https://" aria-label="Web address" autocomplete="off" spellcheck="false" value="${attr(l?l.url:'')}">
+        <button type="button" class="iconbtn iconbtn--sm iconbtn--danger" onclick="removeLinkRow(this)" aria-label="Remove link" title="Remove link">${ic('close')}</button>
+    </div>`);
+    const row=list.lastElementChild;
+    if(focus)row.querySelector('[data-k="label"]').focus();
+    return row;
+}
+function removeLinkRow(btn){
+    const row=btn.closest('.link-row'),list=row.parentElement,next=row.nextElementSibling||row.previousElementSibling;row.remove();
+    (next?next.querySelector('[data-k="label"]'):list.parentElement.querySelector('.parts-add')).focus();
+}
+// An address typed without its scheme, like amazon.com/..., gets https://.
+function normalizeUrl(u){u=(u||'').trim();return u&&!/^[a-z][a-z0-9+.-]*:/i.test(u)?'https://'+u.replace(/^\/+/,''):u}
+function readLinkRow(row){const v=k=>row.querySelector(`[data-k="${k}"]`).value.trim();return{label:v('label'),url:normalizeUrl(v('url'))}}
+function readLinks(listId){return[...$(listId).children].map(readLinkRow).filter(l=>l.url||l.label)}
+function checkLinks(listId){
+    const row=[...$(listId).children].find(r=>{const l=readLinkRow(r);return l.label&&!l.url});
+    if(row){toast('Each link needs a web address.','error');row.querySelector('[data-k="url"]').focus();return false}
+    return true;
+}
+function initLinkLists(){
+    ['recordLinks','reminderLinks'].forEach(id=>{
+        const list=$(id);
+        list.addEventListener('focusout',e=>{if(e.target.dataset.k==='url')e.target.value=normalizeUrl(e.target.value)});
+        // Enter moves to the next line, or starts one, instead of saving the form.
+        list.addEventListener('keydown',e=>{
+            if(e.key!=='Enter'||!e.target.matches('input'))return;
+            e.preventDefault();const row=e.target.closest('.link-row');
+            if(e.target.dataset.k==='label'){row.querySelector('[data-k="url"]').focus();return}
+            if(row===list.lastElementChild){if(readLinkRow(row).url)addLinkRow(id,null,true)}
+            else row.nextElementSibling.querySelector('[data-k="label"]').focus();
+        });
+    });
+}
+function linkParts(u){try{const x=new URL(u);return{host:x.hostname.replace(/^www\./,''),path:x.pathname.replace(/\/$/,'')}}catch(e){return{host:u,path:''}}}
+function linkIcon(u){
+    const{host,path}=linkParts(u);
+    if(/(^|\.)(youtube\.com|youtu\.be|vimeo\.com)$/i.test(host))return'video';
+    return/\.pdf$/i.test(path)?'file':'link';
+}
+// Only http and https ever become a link; anything else shows as text.
+const safeHref=u=>/^https?:\/\//i.test(u||'');
+function linkTag(l,cls){
+    const{host,path}=linkParts(l.url),text=l.label||host+path;
+    return safeHref(l.url)?`<a class="${cls}" href="${attr(l.url)}" target="_blank" rel="noopener noreferrer" title="${attr(l.url)}">${ic(linkIcon(l.url))}<span>${esc(text)}</span></a>`:`<span class="${cls}">${esc(text)}</span>`;
+}
+// In the record view: the label, with the site under it.
+function linkItem(l){
+    const{host,path}=linkParts(l.url),inner=`${ic(linkIcon(l.url))}<span class="link-text"><b>${esc(l.label||host+path)}</b><small>${esc(l.label?host:'')}</small></span>`;
+    return safeHref(l.url)?`<a class="link-item" href="${attr(l.url)}" target="_blank" rel="noopener noreferrer" title="${attr(l.url)}">${inner}</a>`:`<div class="link-item">${inner}</div>`;
+}
+
 // ————— Reminders —————
 async function loadReminders(){
     if(!currentCarId)return;const carId=currentCarId;
@@ -721,6 +784,7 @@ async function loadReminders(){
         return`<div class="rem s-${r.status}">
             <div class="rem-title"><span>${esc(r.title)}</span>${r.status==='overdue'?'<span class="chip chip--red">Overdue</span>':r.status==='due_soon'?'<span class="chip chip--amber">Due soon</span>':''}</div>
             <div class="rem-sub">${reminderSub(r)}</div>
+            ${(r.links||[]).length?`<div class="rem-links">${r.links.map(l=>linkTag(l,'rem-link')).join('')}</div>`:''}
             <div class="rem-val">${big}</div><div class="rem-lbl">${lbl}</div>
             ${meter(r)}
             <div class="rem-actions">${hasPerm('can_edit_records')?`<button class="iconbtn iconbtn--sm" title="Edit reminder" aria-label="Edit reminder" data-rem='${attr(JSON.stringify(r))}' onclick="openReminderModal(JSON.parse(this.dataset.rem))">${ic('edit')}</button>`:''}${hasPerm('can_delete_records')?`<button class="iconbtn iconbtn--sm iconbtn--danger" title="Delete reminder" aria-label="Delete reminder" onclick="deleteReminder(${r.id})">${ic('delete')}</button>`:''}</div>
@@ -736,19 +800,22 @@ function setReminderMode(isTime){
 }
 function reminderBody(form){
     const b=Object.fromEntries(new FormData(form).entries());
-    b.interval_type=b.interval_mode==='time'?'time':'miles';delete b.id;delete b.interval_mode;return b;
+    b.interval_type=b.interval_mode==='time'?'time':'miles';delete b.id;delete b.interval_mode;
+    b.links=readLinks('reminderLinks');return b;
 }
 function openReminderModal(r){
     const f=$('reminderForm');f.reset();f.id.value=r?r.id:'';
     $('reminderModalTitle').textContent=r?'Edit reminder':'Add reminder';$('reminderSubmitBtn').textContent=r?'Save changes':'Add reminder';
     if(r){f.title.value=r.title;f.interval_miles.value=r.interval_miles||'';f.interval_months.value=r.interval_months||'';
         f.last_done_odometer.value=r.last_done_odometer==null?'':r.last_done_odometer;f.last_done_date.value=r.last_done_date||'';f.notes.value=r.notes||''}
+    $('reminderLinks').innerHTML='';(r&&r.links||[]).forEach(l=>addLinkRow('reminderLinks',l));
     setReminderMode(!!r&&r.interval_type==='time');
     openModal('reminderModal');setTimeout(()=>f.title.focus(),60);
 }
 async function submitReminder(e){
     e.preventDefault();const f=e.target,id=f.id.value,b=$('reminderSubmitBtn'),label=b.textContent;
     if(!id&&!currentCarId)return;
+    if(!checkLinks('reminderLinks'))return;
     b.disabled=true;b.textContent='Saving…';
     try{
         const r=await api(id?'/api/reminders/'+id:`/api/cars/${currentCarId}/reminders`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(reminderBody(f))});

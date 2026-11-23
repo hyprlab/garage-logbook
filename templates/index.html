@@ -54,6 +54,8 @@
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15Z"/><path d="M10 21h4"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1 1 0 0 1 0 1.4l-7.4 7.4a1 1 0 0 1-1.4 0Z"/><circle cx="8" cy="8" r="1.3"/></symbol>
     <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20 11.5-7.6 7.6a5 5 0 0 1-7.1-7.1l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="m10.5 9.3 4.2 2.7-4.2 2.7Z"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4"/><path d="M10.3 12.7 21 2M15 5l3 3M18 2l3 3"/></symbol>
 </svg>
 <script>
@@ -371,6 +373,7 @@ const APP_VERSION="{{version}}";
                 <div class="changelog-entry">
                     <div class="changelog-version">Unreleased</div>
                     <ul>
+                        <li>New: add links to a service record or a reminder, such as where to buy a part, a diagram, the manual or a how-to video. A record's links show when viewing it, in its PDF and in the CSV export, and search finds records by them; a reminder's show under it on the vehicle's page</li>
                         <li>New: service reminders are added and edited in the panel that slides in from the right, like records and vehicles</li>
                     </ul>
                 </div>
@@ -680,6 +683,12 @@ const APP_VERSION="{{version}}";
                 <div><div class="form-section-title">Restart reminders</div><div class="field-hint">Ticked reminders count down again from this record's mileage or date.</div></div>
                 <div id="maintResetList" class="reset-list"></div>
             </div>
+<div class="form-section">
+                <div><div class="form-section-title">Links</div><div class="field-hint">Where to buy a part, a diagram, the manual or a how-to video. The label is optional.</div></div>
+                <div class="links-edit" id="recordLinks"></div>
+                <div><button type="button" class="btn btn--ghost btn--sm parts-add" onclick="addLinkRow('recordLinks',null,true)">{{ i('plus') }}Add link</button></div>
+            </div>
+            <input type="hidden" name="links">
             <div class="form-section">
                 <div class="form-section-title" id="attachTitle">Attachments</div>
                 <div class="drops">
@@ -717,6 +726,11 @@ const APP_VERSION="{{version}}";
                 <span class="field-hint span-2" style="margin-top:-8px">The last-done value is only used until a matching service record exists.</span>
             </div>
             <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="4" placeholder="Which fluid or part, where it was done, anything to check next time"></textarea></label>
+            <div class="form-section">
+                <div><div class="form-section-title">Links</div><div class="field-hint">Where to buy the parts or fluid, the procedure, a how-to video. They show under the reminder.</div></div>
+                <div class="links-edit" id="reminderLinks"></div>
+                <div><button type="button" class="btn btn--ghost btn--sm parts-add" onclick="addLinkRow('reminderLinks',null,true)">{{ i('plus') }}Add link</button></div>
+            </div>
         </div>
         <div class="modal-foot"><button type="button" class="btn btn--ghost" onclick="closeModal('reminderModal')">Cancel</button><button type="submit" class="btn btn--primary" id="reminderSubmitBtn">Add reminder</button></div>
     </form>
