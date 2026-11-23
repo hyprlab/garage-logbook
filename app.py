@@ -33,7 +33,9 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-to-a-random
 app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads'))
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
-ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','pdf'}
+ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','heic','heif','pdf'}
+# Photos most browsers cannot show, saved as JPEG instead.
+CONVERT_TO_JPEG = {'heic','heif'}
 ROLES = {'admin','editor'}
 DATABASE = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'garage_logbook.db'))
 
@@ -319,12 +321,30 @@ def seed_vendors_from_records(conn):
 def save_upload(file, subfolder):
     if file and allowed_file(file.filename):
         ext = file.filename.rsplit('.',1)[1].lower()
-        fn = f"{uuid.uuid4().hex}.{ext}"
         folder = os.path.join(app.config['UPLOAD_FOLDER'], subfolder)
         os.makedirs(folder, exist_ok=True)
+        if ext in CONVERT_TO_JPEG:
+            return save_as_jpeg(file, folder)
+        fn = f"{uuid.uuid4().hex}.{ext}"
         file.save(os.path.join(folder, fn))
         return fn
     return None
+
+def save_as_jpeg(file, folder):
+    """An iPhone's HEIC photo, saved as a JPEG every browser and the PDF export
+    can show. Turned upright, and without its metadata (location included).
+    None when the file cannot be read as an image."""
+    from PIL import Image, ImageOps
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    fn = f"{uuid.uuid4().hex}.jpg"
+    try:
+        with Image.open(file.stream) as im:
+            ImageOps.exif_transpose(im).convert('RGB').save(os.path.join(folder, fn), 'JPEG', quality=88, optimize=True)
+    except Exception as e:
+        print(f"Could not convert {file.filename!r} to JPEG: {e}")
+        return None
+    return fn
 
 def get_file_type(filename):
     if filename and filename.rsplit('.',1)[1].lower() == 'pdf': return 'document'

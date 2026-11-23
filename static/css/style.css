@@ -681,6 +681,9 @@ a.rem-link:hover span { text-decoration: underline; }
 .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
 .thumbs:empty { display: none; }
 .thumbs img { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); }
+/* A photo the browser cannot preview, like HEIC before it is saved. */
+.thumb-ph { width: 60px; height: 60px; border-radius: 8px; border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--faint); }
+.thumb-ph small { font-size: 10.5px; font-weight: 600; }
 .doc-list { display: flex; flex-direction: column; gap: 4px; }
 .doc-list:empty { display: none; }
 .doc-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }

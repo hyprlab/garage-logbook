@@ -956,8 +956,23 @@ function importReset(){csvFile=null;csvHeaders=[];importPreviewData=null;importT
 function importViewCar(){if(importTargetCarId){closeModal('settingsModal');go('car/'+importTargetCarId)}}
 
 // ————— File previews —————
-function previewFile(input,pid){const p=$(pid);if(input.files&&input.files[0]){const r=new FileReader();r.onload=e=>{p.classList.add('has-preview');p.innerHTML=`<img src="${e.target.result}" alt="">`};r.readAsDataURL(input.files[0])}}
-function previewGallery(input){const c=$('galleryThumbs');c.innerHTML='';if(input.files)Array.from(input.files).forEach(f=>{const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.alt='';c.appendChild(img)};r.readAsDataURL(f)})}
+// Most browsers cannot show a HEIC photo until the server has turned it into a
+// JPEG, so a preview that fails to load shows the file's name instead.
+function previewFile(input,pid){
+    const p=$(pid),f=input.files&&input.files[0];if(!f)return;
+    const img=new Image();img.alt='';
+    img.onload=()=>{p.classList.add('has-preview');p.innerHTML='';p.appendChild(img)};
+    img.onerror=()=>{p.classList.remove('has-preview');p.innerHTML=`${ic('image')}<b>${esc(f.name)}</b><small>Shown once saved</small>`};
+    img.src=URL.createObjectURL(f);
+}
+function previewGallery(input){
+    const c=$('galleryThumbs');c.innerHTML='';if(!input.files)return;
+    Array.from(input.files).forEach(f=>{
+        const img=document.createElement('img');img.alt='';img.title=f.name;
+        img.onerror=()=>img.replaceWith(Object.assign(document.createElement('span'),{className:'thumb-ph',title:f.name,innerHTML:`${ic('image')}<small>${esc((f.name.split('.').pop()||'').toUpperCase())}</small>`}));
+        img.src=URL.createObjectURL(f);c.appendChild(img);
+    });
+}
 function previewDocuments(input,listId){const c=$(listId);c.innerHTML='';if(input.files)Array.from(input.files).forEach(f=>{c.innerHTML+=`<div class="doc-item">${ic('file')}${esc(f.name)}</div>`})}
 
 // ————— Lightbox —————
