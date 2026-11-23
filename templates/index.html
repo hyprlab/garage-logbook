@@ -652,10 +652,10 @@ const APP_VERSION="{{version}}";
                     <label class="t-inspection"><input type="radio" name="maintenance_type" value="Inspection"><span><i class="dot"></i>Inspection</span></label>
                 </div>
             </div>
-            <div class="form-grid">
+            <div class="form-grid form-grid--3">
                 <label class="field"><span class="field-label">Service date <span class="req">*</span></span><input type="date" name="service_date" required oninput="renderMaintResetOptions()"></label>
                 <label class="field"><span class="field-label">Odometer</span><span class="affix"><input type="number" name="odometer" min="0" placeholder="0" oninput="renderMaintResetOptions()"><span class="affix-post">miles</span></span></label>
-                <div class="field span-2"><span class="field-label">Vendor</span><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div>
+                <div class="field"><span class="field-label">Vendor</span><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div>
             </div>
             {# Cost: one amount typed in, or itemized into parts, labor, shipping and tax, which add up to it. #}
             <div class="field cost-field">

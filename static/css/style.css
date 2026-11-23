@@ -162,6 +162,8 @@ svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 14px; }
 .form-grid .span-2 { grid-column: 1 / -1; }
 .form-grid--ymm { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); }
+/* Service date, odometer and vendor: the first two keep room for a full date and six digits. */
+.form-grid--3 { grid-template-columns: minmax(140px, 1fr) minmax(132px, 1fr) minmax(0, 1.3fr); }
 /* A field with a unit before or after the number. */
 .affix {
   display: flex; align-items: center; height: 38px; min-width: 0;
