@@ -236,6 +236,7 @@ const APP_VERSION="{{version}}";
     ('import', 'Import CSV', 'Records', 'upload', 'perm-can_import'),
     ('account', 'Account', 'Account', 'account', ''),
     ('users', 'Users', 'Account', 'users', 'admin-only'),
+    ('signin', 'Sign-in protection', 'Account', 'key', 'admin-only'),
     ('backup', 'Backup and restore', 'Account', 'download', 'admin-only'),
 ] %}
 <div class="overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -339,13 +340,28 @@ const APP_VERSION="{{version}}";
                 <div id="usersList" class="manage-list" style="margin-top:14px"></div>
             </section>
 
+            <section class="settings-pane" data-pane="signin" data-title="Sign-in protection">
+                <p class="pane-intro">Add a Cloudflare Turnstile check to the sign-in page, so automated sign-in attempts are stopped before a password is checked. In the Cloudflare dashboard, add a Turnstile widget for this site's domain, then enter its keys here.</p>
+                <div class="ts-status" id="tsStatus"></div>
+                <div class="stack">
+                    <label class="field"><span class="field-label">Site key</span><input type="text" id="tsSiteKey" autocomplete="off" spellcheck="false" maxlength="100" oninput="tsKeysChanged()"></label>
+                    <label class="field"><span class="field-label">Secret key</span><input type="password" id="tsSecretKey" autocomplete="new-password" spellcheck="false" maxlength="100" oninput="tsKeysChanged()"><span class="field-hint" id="tsSecretHint"></span></label>
+                    <div class="field" id="tsTestBlock" hidden><span class="field-label">Test the keys</span><div id="tsWidget" class="ts-widget"></div><span class="field-hint">Turns on once this check passes, so keys that do not work for this domain cannot lock anyone out.</span></div>
+                </div>
+                <div class="import-actions">
+                    <button class="btn btn--ghost" id="tsOffBtn" onclick="turnstileOff()" hidden>Turn off</button>
+                    <button class="btn btn--primary" id="tsTestBtn" onclick="turnstileTest()">Test and turn on</button>
+                </div>
+                <p class="field-hint ts-recover">If the keys stop working and no one can sign in, turn the check off from the server with <code>docker exec garage-logbook flask --app app turnstile-off</code></p>
+            </section>
+
             <section class="settings-pane" data-pane="backup" data-title="Backup and restore">
                 <p class="pane-intro">A backup holds this whole install: every user, vehicle, record and reminder, with their photos and receipts. Restore it on another install to move there.</p>
                 <div class="pane-group-title">Download a backup</div>
                 <p class="backup-summary" id="backupSummary"></p>
                 <div><button class="btn btn--primary" id="backupBtn" onclick="downloadBackup()">{{ i('download') }}Download backup</button></div>
                 <div class="pane-group-title backup-restore-title">Restore a backup</div>
-                <p class="pane-intro">Restoring replaces everything in this install with what is in the backup. Everyone is signed out and signs in again with the accounts from the backup. A backup made by a newer version needs this install updated first.</p>
+                <p class="pane-intro">Restoring replaces everything in this install with what is in the backup. Everyone is signed out and signs in again with the accounts from the backup. Sign-in protection is turned off, to turn on again for this site. A backup made by a newer version needs this install updated first.</p>
                 <div class="drop"><input type="file" id="restoreFile" accept=".zip,application/zip" onchange="onRestoreFile(this)" aria-label="Backup file"><div class="drop-face" id="restoreLabel"></div></div>
                 <div class="import-actions"><button class="btn btn--danger" id="restoreBtn" onclick="restoreBackup()" disabled>Restore backup</button></div>
             </section>
@@ -385,6 +401,7 @@ const APP_VERSION="{{version}}";
                 <div class="changelog-entry">
                     <div class="changelog-version">Unreleased</div>
                     <ul>
+                        <li>New: an optional Cloudflare Turnstile check on the sign-in page, set up by an admin in Settings, Sign-in protection. It turns on only after a test check with the keys passes</li>
                         <li>New: back up a whole install and restore it on another, from Settings, Backup and restore (admins only). A backup is one zip with every user, vehicle, record, reminder and setting, plus all photos and receipts. Restoring replaces everything and signs everyone out. The backup uploads in pieces of up to 90 MB, so a restore works behind a proxy that limits uploads, such as Cloudflare</li>
                         <li>New: service reminders can have an estimated cost. It shows with the reminder on the vehicle's page and under Coming up on the dashboard, which adds up the estimates for what is overdue or due soon</li>
                     </ul>

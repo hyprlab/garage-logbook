@@ -201,6 +201,18 @@ All configuration is managed through the `.env` file. The `.env.example` file do
 
 > **Note:** The `.env` file contains your secret key and should not be committed to version control or shared publicly.
 
+### Sign-in protection (Cloudflare Turnstile)
+
+Admins can add a [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) check to the sign-in page from **Settings, Sign-in protection**. Add a Turnstile widget for your domain in the Cloudflare dashboard, enter its site key and secret key, and complete the test check: it turns on only once that check passes. The server confirms each sign-in check with Cloudflare, so it needs outbound HTTPS to `challenges.cloudflare.com`.
+
+If the keys stop working and no one can sign in, turn the check off from the server:
+
+```bash
+docker exec garage-logbook flask --app app turnstile-off
+```
+
+Restoring a backup also turns it off, since the backup may come from another domain.
+
 ### Running behind a reverse proxy
 
 If you're running behind Nginx, Caddy, Nginx Proxy Manager, or similar, point the proxy to the port specified in `APP_PORT` (default `5000`). No additional configuration is needed in the app itself.

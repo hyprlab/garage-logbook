@@ -862,8 +862,70 @@ function switchSettingsTab(tab,importCarId){
     if(tab==='import'){importLoadCars(importCarId);importGoToStep(1)}
     if(tab==='about')markCurrentRelease();
     if(tab==='backup')loadBackupSummary();
+    if(tab==='signin')loadTurnstileSettings();
 }
 function settingsBack(){$('settingsModal').querySelector('.settings-modal').classList.remove('is-showing-pane')}
+
+// ————— Sign-in protection: Cloudflare Turnstile (admins) —————
+// The keys are tested here with a live check before the sign-in page needs
+// them; the server saves them only when Cloudflare confirms that check.
+let tsState={on:false,site_key:'',has_secret:false},tsWidgetId=null,tsToken='';
+async function loadTurnstileSettings(){
+    try{tsState=await getJSON('/api/settings/turnstile')}catch(e){return}
+    $('tsSiteKey').value=tsState.site_key||'';$('tsSecretKey').value='';
+    tsResetWidget();renderTurnstileSettings();
+}
+function renderTurnstileSettings(){
+    $('tsStatus').innerHTML=tsState.on?`<span class="chip chip--green">On</span><span>The sign-in page asks for the check.</span>`:`<span class="chip">Off</span><span>The sign-in page has no check.</span>`;
+    $('tsSecretHint').textContent=tsState.has_secret?'A secret key is saved. Leave this blank to keep it.':'';
+    $('tsSecretKey').placeholder=tsState.has_secret?'Saved':'';
+    $('tsOffBtn').hidden=!tsState.on;
+    $('tsTestBtn').textContent=tsState.on?'Test and save':'Test and turn on';
+}
+function tsResetWidget(){
+    if(tsWidgetId!==null&&window.turnstile)try{turnstile.remove(tsWidgetId)}catch(e){}
+    tsWidgetId=null;tsToken='';$('tsTestBlock').hidden=true;$('tsWidget').innerHTML='';
+}
+function tsKeysChanged(){if(tsWidgetId!==null)tsResetWidget()}
+function loadTurnstileScript(){
+    if(window.turnstile)return Promise.resolve();
+    return new Promise((resolve,reject)=>{
+        const s=document.createElement('script');s.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';s.async=true;
+        s.onload=()=>resolve();s.onerror=()=>reject(new Error('Cloudflare could not be reached to load the check.'));document.head.appendChild(s);
+    });
+}
+// First press shows the check with the entered site key; once it passes,
+// the keys and its token go to the server, which confirms it with the secret.
+async function turnstileTest(){
+    const site=$('tsSiteKey').value.trim(),secret=$('tsSecretKey').value.trim();
+    if(!site){toast('Enter the site key.','error');$('tsSiteKey').focus();return}
+    if(!secret&&!tsState.has_secret){toast('Enter the secret key.','error');$('tsSecretKey').focus();return}
+    if(tsWidgetId===null){
+        try{await loadTurnstileScript()}catch(e){toast(e.message,'error');return}
+        $('tsTestBlock').hidden=false;
+        tsWidgetId=turnstile.render('#tsWidget',{sitekey:site,action:'settings',theme:document.documentElement.getAttribute('data-theme')==='light'?'light':'dark',
+            callback:t=>{tsToken=t;turnstileSave()},
+            'error-callback':()=>{toast('The check could not run with this site key. Check that it is right and that the widget lists this domain.','error');return true}});
+        return;
+    }
+    if(tsToken)turnstileSave();else toast('Complete the check first.','error');
+}
+async function turnstileSave(){
+    const b=$('tsTestBtn');b.disabled=true;
+    try{
+        const r=await api('/api/settings/turnstile',{method:'PUT',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({site_key:$('tsSiteKey').value.trim(),secret_key:$('tsSecretKey').value.trim(),token:tsToken})});
+        if(!r.ok)throw new Error(await errorOf(r,'The keys could not be saved.'));
+        tsState=await r.json();$('tsSecretKey').value='';tsResetWidget();renderTurnstileSettings();
+        toast('Sign-in protection is on');
+    }catch(e){toast(e.message,'error');if(tsWidgetId!==null)try{turnstile.reset(tsWidgetId)}catch(x){}tsToken=''}
+    finally{b.disabled=false}
+}
+async function turnstileOff(){
+    if(!confirm('Turn off sign-in protection? The keys stay saved, to turn it on again later.'))return;
+    try{const r=await api('/api/settings/turnstile',{method:'DELETE'});if(!r.ok)throw new Error();tsState=await r.json();tsResetWidget();renderTurnstileSettings();toast('Sign-in protection is off')}
+    catch(e){toast('Sign-in protection could not be turned off.','error')}
+}
 
 // ————— Backup and restore (admins) —————
 function formatBytes(b){const u=['bytes','KB','MB','GB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return`${i?b.toFixed(b<10?1:0):b} ${u[i]}`}

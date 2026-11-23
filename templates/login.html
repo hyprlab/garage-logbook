@@ -11,6 +11,7 @@
     (function(){var p;try{p=localStorage.getItem('gl-theme')}catch(e){}p=p||'system';
     var d=p==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;document.documentElement.setAttribute('data-theme',d)})();
     </script>
+    {% if turnstile_site_key %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=renderTurnstile" async defer></script>{% endif %}
 </head>
 <body>
 <main class="auth">
@@ -19,6 +20,7 @@
         <form id="loginPanel" class="stack" onsubmit="doLogin(event)">
             <label class="field"><span class="field-label">Username</span><input type="text" id="username" autocomplete="username" autofocus></label>
             <label class="field"><span class="field-label">Password</span><input type="password" id="password" autocomplete="current-password"></label>
+            {% if turnstile_site_key %}<div class="auth-turnstile" id="turnstile"></div>{% endif %}
             <button class="btn btn--primary btn--block" id="loginBtn" type="submit" style="height:40px;margin-top:4px">Sign in</button>
             <p class="auth-error" id="loginError" role="alert"></p>
         </form>
@@ -33,15 +35,27 @@
 </main>
 <script>
 let tempOldPw='';
+// Cloudflare Turnstile, when the install has it turned on.
+const TURNSTILE_KEY={{ turnstile_site_key|tojson }};let turnstileId=null;
+function renderTurnstile(){
+    turnstileId=turnstile.render('#turnstile',{sitekey:TURNSTILE_KEY,action:'login',size:'flexible',
+        theme:document.documentElement.getAttribute('data-theme')==='light'?'light':'dark',
+        // Once it passes, a message asking for it is out of date.
+        callback:()=>{const e=document.getElementById('loginError');if(e.dataset.check)e.textContent='',delete e.dataset.check}});
+}
+const turnstileToken=()=>TURNSTILE_KEY&&window.turnstile&&turnstileId!==null?turnstile.getResponse(turnstileId)||'':'';
 async function doLogin(e){
     e.preventDefault();
     const btn=document.getElementById('loginBtn'),err=document.getElementById('loginError');
     const u=document.getElementById('username').value.trim(),p=document.getElementById('password').value;
-    err.textContent='';if(!u||!p){err.textContent='Enter your username and password.';return}
+    err.textContent='';delete err.dataset.check;if(!u||!p){err.textContent='Enter your username and password.';return}
+    const token=turnstileToken();
+    if(TURNSTILE_KEY&&!token){err.textContent=window.turnstile?'Complete the check above Sign in first.':'The sign-in check is still loading. Try again in a moment.';err.dataset.check='1';return}
     btn.disabled=true;btn.textContent='Signing in…';
     try{
-        const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
-        const d=await r.json();if(!r.ok)throw new Error(d.error);
+        const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,turnstile:token})});
+        const d=await r.json();
+        if(!r.ok){if(TURNSTILE_KEY&&window.turnstile)turnstile.reset(turnstileId);throw new Error(d.error)}   // a token passes once
         if(d.must_change_password){tempOldPw=p;document.getElementById('loginPanel').hidden=true;document.getElementById('pwChangePanel').hidden=false;document.getElementById('authLead').textContent='Choose your own password to finish setting up';document.getElementById('newPwFirst').focus()}
         else window.location.href='/';
     }catch(x){err.textContent=x.message}finally{btn.disabled=false;btn.textContent='Sign in'}

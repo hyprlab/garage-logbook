@@ -608,7 +608,8 @@ def serve_upload(filename):
 @app.route('/login')
 def login_page():
     if g.user: return redirect(url_for('index'))
-    return render_template('login.html', version=APP_VERSION)
+    conn = get_db(); ts = turnstile_config(conn); conn.close()
+    return render_template('login.html', version=APP_VERSION, turnstile_site_key=ts['site_key'] if ts['on'] else '')
 
 @app.route('/')
 @login_required
@@ -628,12 +629,62 @@ def api_version():
     return jsonify({'version': APP_VERSION})
 
 # ── Auth API ───────────────────────────────────────────
+# Cloudflare Turnstile on the sign-in page, set up by an admin in Settings and
+# kept in app_meta. It turns on only after a check made with the keys passes,
+# so a wrong key cannot lock everyone out. `flask --app app turnstile-off`
+# turns it off from the server if the keys stop working.
+TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+TURNSTILE_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{10,100}$')
+
+def turnstile_config(conn):
+    rows = dict(conn.execute("SELECT key,value FROM app_meta WHERE key IN ('turnstile_site_key','turnstile_secret_key','turnstile_on')").fetchall())
+    site, secret = rows.get('turnstile_site_key') or '', rows.get('turnstile_secret_key') or ''
+    return {'site_key': site, 'secret_key': secret, 'on': rows.get('turnstile_on') == '1' and bool(site and secret)}
+
+def turnstile_set_on(conn, on):
+    conn.execute("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('turnstile_on',?)", ('1' if on else '0',))
+
+@app.cli.command('turnstile-off')
+def turnstile_off_command():
+    """Turn off the sign-in check, for when its keys no longer work."""
+    conn = get_db(); turnstile_set_on(conn, False); conn.commit(); conn.close()
+    print('Turnstile is off. Sign in, then set it up again in Settings, Sign-in protection.')
+
+def turnstile_check(token, secret, action='login'):
+    """None when Cloudflare confirms a Turnstile token, else the message to
+    show. Each token passes once, so the page asks for a new one after every
+    attempt."""
+    import urllib.request, urllib.parse
+    token = str(token or '')
+    if not token or len(token) > 2048: return 'Complete the check above Sign in, then try again.'
+    # Behind Cloudflare the visitor's address arrives in CF-Connecting-IP; it
+    # is only a hint to Cloudflare, so a forged one does no harm.
+    ip = request.headers.get('CF-Connecting-IP') or request.remote_addr or ''
+    body = urllib.parse.urlencode({'secret': secret, 'response': token, 'remoteip': ip}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(TURNSTILE_VERIFY_URL, data=body), timeout=10) as r:
+            result = json.load(r)
+    except Exception as e:
+        print(f'Turnstile verification failed: {e!r}')
+        return 'The sign-in check could not be confirmed with Cloudflare. Try again in a moment.'
+    if not result.get('success'):
+        codes = result.get('error-codes') or []
+        if 'invalid-input-secret' in codes: return 'Cloudflare did not accept the secret key.'
+        return 'The sign-in check did not pass. Try again.'
+    if result.get('action') and result['action'] != action:
+        return 'The sign-in check did not pass. Try again.'
+    return None
+
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
     data = request.get_json() or {}
     u, p = data.get('username','').strip(), data.get('password','')
     if not u or not p: return jsonify({'error':'Username and password required'}), 400
     conn = get_db()
+    ts = turnstile_config(conn)
+    if ts['on']:   # before the password, so it also slows guessing
+        err = turnstile_check(data.get('turnstile'), ts['secret_key'])
+        if err: conn.close(); return jsonify({'error': err, 'turnstile': True}), 400
     user = conn.execute('SELECT * FROM users WHERE username=?',(u,)).fetchone()
     conn.close()
     if not user or not verify_password(p, user['password']): return jsonify({'error':'Invalid credentials'}), 401
@@ -752,6 +803,44 @@ def delete_vendor(vid):
     return jsonify({'success':True})
 
 # ── User Management (admin) ───────────────────────────
+# ── Sign-in protection (admins) ────────────────────────
+@app.route('/api/settings/turnstile', methods=['GET'])
+@role_required('admin')
+def get_turnstile():
+    conn = get_db(); ts = turnstile_config(conn); conn.close()
+    # The secret key never leaves the server.
+    return jsonify({'on': ts['on'], 'site_key': ts['site_key'], 'has_secret': bool(ts['secret_key'])})
+
+@app.route('/api/settings/turnstile', methods=['PUT'])
+@role_required('admin')
+def put_turnstile():
+    """Save the keys and turn the check on, once a check made in Settings with
+    those keys has passed. A blank secret keeps the saved one."""
+    d = request.get_json(silent=True) or {}
+    site, secret = str(d.get('site_key') or '').strip(), str(d.get('secret_key') or '').strip()
+    conn = get_db()
+    if not secret: secret = turnstile_config(conn)['secret_key']
+    if not TURNSTILE_KEY_RE.match(site): conn.close(); return jsonify({'error': 'Enter the site key from the Cloudflare dashboard.'}), 400
+    if not TURNSTILE_KEY_RE.match(secret): conn.close(); return jsonify({'error': 'Enter the secret key from the Cloudflare dashboard.'}), 400
+    if not d.get('token'): conn.close(); return jsonify({'error': 'Complete the check first.'}), 400
+    err = turnstile_check(d.get('token'), secret, action='settings')
+    if err: conn.close(); return jsonify({'error': err if 'secret key' in err or 'Cloudflare' in err else 'The check did not pass with these keys. Check them and try again.'}), 400
+    conn.executemany("INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)",
+                     [('turnstile_site_key', site), ('turnstile_secret_key', secret)])
+    turnstile_set_on(conn, True)
+    conn.commit(); conn.close()
+    return jsonify({'on': True, 'site_key': site, 'has_secret': True})
+
+@app.route('/api/settings/turnstile', methods=['DELETE'])
+@role_required('admin')
+def delete_turnstile():
+    """Turn the check off. With forget, the keys go too."""
+    conn = get_db(); turnstile_set_on(conn, False)
+    if request.args.get('forget') == '1':
+        conn.execute("DELETE FROM app_meta WHERE key IN ('turnstile_site_key','turnstile_secret_key')")
+    conn.commit(); ts = turnstile_config(conn); conn.close()
+    return jsonify({'on': False, 'site_key': ts['site_key'], 'has_secret': bool(ts['secret_key'])})
+
 @app.route('/api/users', methods=['GET'])
 @role_required('admin')
 def get_users():
@@ -1680,6 +1769,9 @@ def restore_from_zip(zpath, work):
     init_db()   # brings a backup from an older version up to this one
     conn = get_db()
     conn.execute("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('session_epoch',?)", (secrets.token_hex(16),))
+    # The backup's sign-in check may be for another domain, where its site key
+    # would stop everyone signing in. Its keys stay, to turn on again in Settings.
+    turnstile_set_on(conn, False)
     conn.commit(); conn.close()
     return manifest
 
