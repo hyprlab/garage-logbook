@@ -896,9 +896,9 @@ def delete_car(cid):
 # ── Maintenance API ────────────────────────────────────
 # ── Parts ──────────────────────────────────────────────
 # A record can list the parts that went into it, each with a vendor and cost,
-# and the labor paid for, plus shipping and tax. With parts or labor, the
+# and the labor paid for, plus shipping and tax. Itemized like that, the
 # record's cost is their total, so every sum and chart that reads
-# maintenance.cost stays right. Without either it is typed in, as before.
+# maintenance.cost stays right. Otherwise it is one amount, typed in.
 PARTS_MAX = 100
 
 def parse_money(raw, label):
@@ -937,13 +937,11 @@ def parse_parts_input(form):
     for key in COST_PARTS:
         extras[key], err = parse_money(form.get(key), key.capitalize())
         if err: return None, None, err
-    # Shipping and tax only count alongside parts or labor.
-    if not parts and extras['labor'] is None: extras = dict(NO_EXTRAS)
     return parts, extras, None
 
 def itemized(parts, extras):
-    """Whether the cost adds itself up: there are parts, or labor."""
-    return bool(parts) or extras['labor'] is not None
+    """Whether the cost adds itself up: there are parts, labor, shipping or tax."""
+    return bool(parts) or any(extras[k] is not None for k in COST_PARTS)
 
 def parts_total(parts, extras):
     return round(sum(p['cost'] or 0 for p in parts) + sum(extras[k] or 0 for k in COST_PARTS), 2)
@@ -1371,7 +1369,7 @@ def pdf_render(car, records, font_config=None):
         car_photo = 'file://' + os.path.join(uploads, 'cars', car['image'])
     html = render_template('pdf.html', car=car, car_name=f"{car['year']} {car['make']} {car['model']}",
         car_photo=car_photo, owner=car['owner'], records=records, single=len(records) == 1,
-        detailed=[r for r in records if r['notes'] or r['parts'] or r['labor'] is not None or r['links'] or r['photos'] or r['documents']],
+        detailed=[r for r in records if r['notes'] or itemized(r['parts'], r) or r['links'] or r['photos'] or r['documents']],
         total_cost=sum(r['cost'] or 0 for r in records),
         by_type=sorted(by_type.values(), key=lambda t: -t['cost']),
         first_date=dates[0] if dates else None, last_date=dates[-1] if dates else None,

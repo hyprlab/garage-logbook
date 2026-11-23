@@ -373,6 +373,7 @@ const APP_VERSION="{{version}}";
                 <div class="changelog-entry">
                     <div class="changelog-version">Unreleased</div>
                     <ul>
+                        <li>The cost on a service record is now either a single amount or itemized into parts, labor, shipping and tax, chosen with a switch above it. Labor, shipping and tax no longer need a part listed to count</li>
                         <li>New: add links to a service record or a reminder, such as where to buy a part, a diagram, the manual or a how-to video. A record's links show when viewing it, in its PDF and in the CSV export, and search finds records by them; a reminder's show under it on the vehicle's page</li>
                         <li>New: service reminders are added and edited in the panel that slides in from the right, like records and vehicles</li>
                     </ul>
@@ -654,23 +655,26 @@ const APP_VERSION="{{version}}";
             <div class="form-grid">
                 <label class="field"><span class="field-label">Service date <span class="req">*</span></span><input type="date" name="service_date" required oninput="renderMaintResetOptions()"></label>
                 <label class="field"><span class="field-label">Odometer</span><span class="affix"><input type="number" name="odometer" min="0" placeholder="0" oninput="renderMaintResetOptions()"><span class="affix-post">miles</span></span></label>
-                <div class="field"><span class="field-label">Vendor</span><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div>
-                <label class="field"><span class="field-label">Cost</span><span class="affix"><span class="affix-pre">$</span><input type="number" name="cost" min="0" step="0.01" placeholder="0.00"></span><span class="field-hint" id="costHint" hidden>Added up from the parts and labor below</span></label>
+                <div class="field span-2"><span class="field-label">Vendor</span><div class="combo"><input type="text" name="parts_vendor" autocomplete="off" maxlength="100" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Choose or type a vendor" data-vendor-combo><div class="combo-menu" role="listbox"></div></div></div>
             </div>
-            {# Parts and labor: with either, Cost is their total plus shipping and tax. #}
-            <div class="parts" id="partsBlock">
-                <div class="parts-head">
-                    <span class="field-label">Parts and labor</span>
+            {# Cost: one amount typed in, or itemized into parts, labor, shipping and tax, which add up to it. #}
+            <div class="field cost-field">
+                <span class="field-label" id="costLabel">Cost</span>
+                <div class="seg seg--block" role="radiogroup" aria-labelledby="costLabel">
+                    <label><input type="radio" name="cost_mode" value="single" checked onchange="setCostMode(false)"><span>Single cost</span></label>
+                    <label><input type="radio" name="cost_mode" value="itemized" onchange="setCostMode(true)"><span>Itemized</span></label>
                 </div>
+                <div class="form-grid" id="costSingle"><span class="affix"><span class="affix-pre">$</span><input type="number" name="cost" min="0" step="0.01" placeholder="0.00" aria-labelledby="costLabel"></span></div>
+            </div>
+            <div class="parts" id="partsBlock" hidden>
                 <div class="parts-cols" id="partsCols" hidden aria-hidden="true"><span>Part</span><span>Vendor</span><span class="r">Cost</span><span></span></div>
                 <div class="parts-list" id="partsList"></div>
                 <div class="parts-adds">
                     <button type="button" class="btn btn--ghost btn--sm parts-add" onclick="addPartRow(null,true)">{{ i('plus') }}Add part</button>
-                    <button type="button" class="btn btn--ghost btn--sm parts-add" id="laborAdd" onclick="showLabor(true)">{{ i('plus') }}Add labor</button>
                 </div>
-                <div class="parts-sum" id="partsSum" hidden>
+                <div class="parts-sum" id="partsSum">
                     <div class="sum-row" id="partsSubtotalRow"><span>Parts</span><span class="sum-v" id="partsSubtotal"></span></div>
-                    <div class="sum-row" id="laborRow" hidden><label for="laborInput">Labor</label><span class="affix"><span class="affix-pre">$</span><input type="number" name="labor" id="laborInput" min="0" step="0.01" placeholder="0.00"></span><button type="button" class="iconbtn iconbtn--sm iconbtn--danger" onclick="showLabor(false)" aria-label="Remove labor" title="Remove labor">{{ i('close') }}</button></div>
+                    <label class="sum-row"><span>Labor</span><span class="affix"><span class="affix-pre">$</span><input type="number" name="labor" min="0" step="0.01" placeholder="0.00" aria-label="Labor"></span></label>
                     <label class="sum-row"><span>Shipping</span><span class="affix"><span class="affix-pre">$</span><input type="number" name="shipping" min="0" step="0.01" placeholder="0.00" aria-label="Shipping"></span></label>
                     <label class="sum-row"><span>Tax</span><span class="affix"><span class="affix-pre">$</span><input type="number" name="tax" min="0" step="0.01" placeholder="0.00" aria-label="Tax"></span></label>
                     <div class="sum-row sum-total"><span>Total</span><span class="sum-v" id="partsTotal"></span></div>

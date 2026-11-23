@@ -12,7 +12,7 @@
 </tr></table>
 {%- endmacro -%}
 {%- macro parts(r) -%}
-{% if r.parts or r.labor is not none %}
+{% if r.parts or r.labor is not none or r.shipping is not none or r.tax is not none %}
 {% set extras = [('Labor', r.labor), ('Shipping', r.shipping), ('Tax', r.tax)]|selectattr(1, 'ne', none)|list %}
 <table class="parts{% if not r.parts %} parts--sums{% endif %}">
     {% if r.parts %}<thead><tr><th>Part</th><th>Vendor</th><th class="r">Cost</th></tr></thead>{% endif %}

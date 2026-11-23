@@ -760,18 +760,19 @@ a.link-item:hover { background: var(--hover); }
 .parts-add svg.i { width: 15px; height: 15px; }
 .parts-sum { align-self: flex-end; width: min(100%, 308px); display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
 .sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px 28px; gap: 8px; align-items: center; }
+.sum-row .sum-v { text-align: right; padding-right: 13px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.sum-total { padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line-soft); font-weight: 650; color: var(--ink); }
+.sum-total .sum-v { font-weight: 700; }
+/* Cost: a switch between one amount and the itemized lines below it. */
+.cost-field .seg { margin-bottom: 4px; }
+.parts[hidden] { display: none; }
+.cost-field + .parts { margin-top: -6px; }
 
 /* Links on the record and reminder forms: a label and a web address per line. */
 .links-edit { display: flex; flex-direction: column; gap: 8px; }
 .links-edit:empty { display: none; }
 .link-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 28px; gap: 8px; align-items: center; }
 .link-row .input { height: 36px; }
-.sum-row .sum-v { text-align: right; padding-right: 13px; font-variant-numeric: tabular-nums; color: var(--ink); }
-.sum-total { padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line-soft); font-weight: 650; color: var(--ink); }
-.sum-total .sum-v { font-weight: 700; }
-/* Cost while parts add it up: shown, not typed in. */
-.affix.is-derived { background: transparent; border-style: dashed; }
-.affix.is-derived input { color: var(--muted); cursor: default; }
 
 /* Parts in the record view: a short invoice. */
 .detail-count { margin-left: 4px; font-weight: 500; color: var(--faint); }
