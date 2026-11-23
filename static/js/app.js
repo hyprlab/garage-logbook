@@ -235,6 +235,8 @@ function reminderSub(r){
     const every=`Every ${n(r.interval_miles)} mi`;
     return r.next_due_odometer!=null?`${every}, next at ${n(r.next_due_odometer)} mi`:`${every}. Log a matching record or set a last-done mileage.`;
 }
+// A reminder's estimated cost, in whole dollars when it has no cents.
+function reminderEstimate(r){const v=r.estimated_cost;return v==null?'':`Est. ${money(v,Number.isInteger(+v)?0:2)}`}
 function meter(r){const f=r.remaining_fraction;if(f==null)return'';const pct=Math.max(2,Math.min(100,Math.round((1-f)*100)));return`<div class="meter"><span style="width:${pct}%"></span></div>`}
 
 // ————— Dashboard —————
@@ -309,9 +311,12 @@ new ResizeObserver(debounce(()=>{if(currentView==='dashboard'&&spendData.length)
 function renderUpcoming(up){
     const all=(up.reminders||[]).filter(x=>x.status!=='no_baseline'),list=all.slice(0,6);
     const over=up.overdue||0,soon=up.due_soon||0;
+    // What the overdue and due-soon work is estimated to cost, when any of it has an estimate.
+    const due=all.filter(r=>r.status==='overdue'||r.status==='due_soon'),est=due.reduce((a,r)=>a+(+r.estimated_cost||0),0);
+    const foot=due.some(r=>r.estimated_cost!=null)?`<div class="attn-foot"><span>Estimated for overdue and due soon</span><b>${money(est,Number.isInteger(est)?0:2)}</b></div>`:'';
     $('attnCount').textContent=all.length?(over||soon?[over&&`${n(over)} overdue`,soon&&`${n(soon)} due soon`].filter(Boolean).join(', '):`${plural(all.length,'reminder')}`):'';
     $('upcomingList').innerHTML=list.length?list.map(r=>{const{big,lbl}=reminderCountdown(r);
-        return`<button class="attn-item s-${r.status}" onclick="go('car/${r.car_id}')"><span class="dot"></span><span class="attn-title">${esc(r.title)}</span><span class="attn-val">${big}</span><span class="attn-car">${esc(r.car_name)}</span><span class="attn-lbl">${lbl}</span></button>`}).join('')
+        return`<button class="attn-item s-${r.status}" onclick="go('car/${r.car_id}')"><span class="dot"></span><span class="attn-title">${esc(r.title)}</span><span class="attn-val">${big}</span><span class="attn-car">${esc(r.car_name)}${r.estimated_cost!=null?` · ${reminderEstimate(r)}`:''}</span><span class="attn-lbl">${lbl}</span></button>`}).join('')+foot
         :`<div class="empty"><p class="empty-title">Nothing coming up</p><p class="empty-text">Add a reminder on a vehicle's page, such as an oil change every 5,000 miles, and it counts down here.</p></div>`;
 }
 // Rows on a vehicle's page can be ticked for export, when the user may export.
@@ -789,6 +794,7 @@ async function loadReminders(){
         return`<div class="rem s-${r.status}">
             <div class="rem-title"><span>${esc(r.title)}</span>${r.status==='overdue'?'<span class="chip chip--red">Overdue</span>':r.status==='due_soon'?'<span class="chip chip--amber">Due soon</span>':''}</div>
             <div class="rem-sub">${reminderSub(r)}</div>
+            ${r.estimated_cost!=null?`<div class="rem-est">${reminderEstimate(r)}</div>`:''}
             ${(r.links||[]).length?`<div class="rem-links">${r.links.map(l=>linkTag(l,'rem-link')).join('')}</div>`:''}
             <div class="rem-val">${big}</div><div class="rem-lbl">${lbl}</div>
             ${meter(r)}
@@ -812,7 +818,8 @@ function openReminderModal(r){
     const f=$('reminderForm');f.reset();f.id.value=r?r.id:'';
     $('reminderModalTitle').textContent=r?'Edit reminder':'Add reminder';$('reminderSubmitBtn').textContent=r?'Save changes':'Add reminder';
     if(r){f.title.value=r.title;f.interval_miles.value=r.interval_miles||'';f.interval_months.value=r.interval_months||'';
-        f.last_done_odometer.value=r.last_done_odometer==null?'':r.last_done_odometer;f.last_done_date.value=r.last_done_date||'';f.notes.value=r.notes||''}
+        f.last_done_odometer.value=r.last_done_odometer==null?'':r.last_done_odometer;f.last_done_date.value=r.last_done_date||'';f.notes.value=r.notes||'';
+        f.estimated_cost.value=r.estimated_cost!=null?(+r.estimated_cost).toFixed(2):''}
     $('reminderLinks').innerHTML='';(r&&r.links||[]).forEach(l=>addLinkRow('reminderLinks',l));
     setReminderMode(!!r&&r.interval_type==='time');
     openModal('reminderModal');setTimeout(()=>f.title.focus(),60);

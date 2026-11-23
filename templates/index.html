@@ -371,6 +371,12 @@ const APP_VERSION="{{version}}";
                     <summary class="about-summary"><h4>Changelog</h4></summary>
                     <div class="release-list">
                 <div class="changelog-entry">
+                    <div class="changelog-version">Unreleased</div>
+                    <ul>
+                        <li>New: service reminders can have an estimated cost. It shows with the reminder on the vehicle's page and under Coming up on the dashboard, which adds up the estimates for what is overdue or due soon</li>
+                    </ul>
+                </div>
+                <div class="changelog-entry">
                     <div class="changelog-version">1.2.0</div>
                     <ul>
                         <li>New: photos can be HEIC, the format iPhones take them in, on records and vehicles. They are saved as JPEG, so every browser and the PDF export can show them</li>
@@ -730,6 +736,9 @@ const APP_VERSION="{{version}}";
                 <label class="field hidden" data-mode="time"><span class="field-label">Every <span class="req">*</span></span><span class="affix"><input type="number" name="interval_months" min="1" step="1" required placeholder="12" disabled><span class="affix-post">months</span></span></label>
                 <label class="field hidden" data-mode="time"><span class="field-label">Last done on <span class="opt">optional</span></span><input type="date" name="last_done_date" disabled></label>
                 <span class="field-hint span-2" style="margin-top:-8px">The last-done value is only used until a matching service record exists.</span>
+            </div>
+            <div class="form-grid">
+                <label class="field"><span class="field-label">Estimated cost <span class="opt">optional</span></span><span class="affix"><span class="affix-pre">$</span><input type="number" name="estimated_cost" min="0" step="0.01" placeholder="0.00"></span></label>
             </div>
             <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="4"></textarea></label>
             <div class="form-section">

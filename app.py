@@ -143,6 +143,7 @@ def _init_db():
             interval_miles INTEGER NOT NULL DEFAULT 0,
             interval_months INTEGER,
             last_done_odometer INTEGER, last_done_date TEXT, notes TEXT,
+            estimated_cost REAL,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (car_id) REFERENCES cars(id) ON DELETE CASCADE
         );
@@ -257,6 +258,8 @@ def _init_db():
             conn.execute("ALTER TABLE service_reminders ADD COLUMN interval_months INTEGER")
         if 'last_done_date' not in cols:
             conn.execute("ALTER TABLE service_reminders ADD COLUMN last_done_date TEXT")
+        if 'estimated_cost' not in cols:   # reminders gained an estimated cost
+            conn.execute("ALTER TABLE service_reminders ADD COLUMN estimated_cost REAL")
         conn.commit()
     except Exception as e:
         print(f"Migration reminder interval columns: {e}")
@@ -507,6 +510,10 @@ def parse_reminder_input(d, base=None):
     except ValueError:
         return None, 'Mileage and interval values must be whole numbers'
 
+    # blank clears the estimate; leaving it out keeps the stored one
+    est, err = parse_money(pick('estimated_cost'), 'Estimated cost')
+    if err: return None, err
+
     if not t: return None, 'Title is required'
     if itype == 'time':
         if not iv_mo or iv_mo <= 0: return None, 'Month interval is required and must be greater than zero'
@@ -515,7 +522,7 @@ def parse_reminder_input(d, base=None):
         if not iv_mi or iv_mi <= 0: return None, 'Mileage interval is required and must be greater than zero'
         if ld_odo is not None and ld_odo < 0: return None, 'Last-done mileage cannot be negative'
     return {'title': t, 'interval_type': itype, 'interval_miles': iv_mi or 0, 'interval_months': iv_mo,
-            'last_done_odometer': ld_odo, 'last_done_date': ld_date, 'notes': n or None}, None
+            'last_done_odometer': ld_odo, 'last_done_date': ld_date, 'notes': n or None, 'estimated_cost': est}, None
 
 def can_access_car(conn, cid, user):
     """Check if user can access this car (owns it or is admin)."""
@@ -1215,10 +1222,10 @@ def add_reminder(cid):
     f, err = parse_reminder_input(data)
     if not err: links, err = parse_links_input(data.get('links'))
     if err: conn.close(); return jsonify({'error': err}), 400
-    cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_type,interval_miles,interval_months,last_done_odometer,last_done_date,notes)'
-                       ' VALUES (?,?,?,?,?,?,?,?)',
+    cur = conn.execute('INSERT INTO service_reminders (car_id,title,interval_type,interval_miles,interval_months,last_done_odometer,last_done_date,notes,estimated_cost)'
+                       ' VALUES (?,?,?,?,?,?,?,?,?)',
                        (cid, f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
-                        f['last_done_odometer'], f['last_done_date'], f['notes']))
+                        f['last_done_odometer'], f['last_done_date'], f['notes'], f['estimated_cost']))
     if links: save_links(conn, 'reminder', cur.lastrowid, links)
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (cur.lastrowid,)).fetchone()
@@ -1239,9 +1246,9 @@ def update_reminder(rid):
     if err: conn.close(); return jsonify({'error': err}), 400
     if links is not None: save_links(conn, 'reminder', rid, links)
     conn.execute('UPDATE service_reminders SET title=?,interval_type=?,interval_miles=?,interval_months=?,'
-                 'last_done_odometer=?,last_done_date=?,notes=? WHERE id=?',
+                 'last_done_odometer=?,last_done_date=?,notes=?,estimated_cost=? WHERE id=?',
                  (f['title'], f['interval_type'], f['interval_miles'], f['interval_months'],
-                  f['last_done_odometer'], f['last_done_date'], f['notes'], rid))
+                  f['last_done_odometer'], f['last_done_date'], f['notes'], f['estimated_cost'], rid))
     conn.commit()
     row = conn.execute('SELECT * FROM service_reminders WHERE id=?', (rid,)).fetchone()
     out = reminder_out(conn, row)
