@@ -535,6 +535,8 @@ def can_access_car(conn, cid, user):
 # ── Error Handlers ─────────────────────────────────────
 @app.errorhandler(413)
 def too_large(e):
+    if request.path.startswith('/api/backup/restore/'):
+        return jsonify({'error':f'A piece of the backup was larger than {RESTORE_CHUNK // (1024 * 1024)} MB.'}), 413
     if request.path.startswith('/api/'): return jsonify({'error':'File too large (max 32MB)'}), 413
     return 'File too large', 413
 
@@ -1580,75 +1582,194 @@ def check_backup_db(path):
         return 'The database in this backup could not be read.'
     return None
 
-@app.route('/api/backup/restore', methods=['POST'])
-@role_required('admin')
-def restore_backup():
-    import tempfile, shutil
-    request.max_content_length = BACKUP_MAX   # set before the upload is read
-    f = request.files.get('backup')
-    if not f or not f.filename: return jsonify({'error': 'Choose a backup file.'}), 400
+# A restore arrives in pieces, so a backup larger than a proxy's limit on one
+# request (Cloudflare's is 100 MB) still gets through: start an upload, send
+# each piece at its offset, then finish. The restore itself runs in the
+# background, and the page asks how it is going, so no single request has to
+# outlast a proxy's timeout either. The upload id is the secret that lets the
+# page keep asking after the restore has signed everyone out.
+RESTORE_CHUNK = 90 * 1024 * 1024
+RESTORE_ID_RE = re.compile(r'^[0-9a-f]{32}$')
+RESTORE_KEEP = 24 * 3600            # abandoned uploads and old results go after a day
+
+class RestoreError(Exception):
+    pass
+
+def restore_paths(rid):
+    base = os.path.join(os.path.dirname(os.path.abspath(DATABASE)), f'.restore-{rid}')
+    return base, base + '.json'      # the work folder, and the status the page reads
+
+def restore_status(rid, **status):
+    _, path = restore_paths(rid)
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as fh: json.dump(status, fh)
+    os.replace(tmp, path)
+
+def restore_read_status(rid):
+    try:
+        with open(restore_paths(rid)[1]) as fh: return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+def restore_cleanup():
+    import shutil, time
+    data_dir = os.path.dirname(os.path.abspath(DATABASE))
+    for name in os.listdir(data_dir):
+        if not name.startswith('.restore-'): continue
+        path = os.path.join(data_dir, name)
+        try:
+            if time.time() - os.path.getmtime(path) < RESTORE_KEEP: continue
+            if os.path.isdir(path): shutil.rmtree(path, ignore_errors=True)
+            else: os.remove(path)
+        except OSError:
+            pass
+
+def restore_from_zip(zpath, work):
+    """Replace this install with the backup at zpath. Raises RestoreError with
+    a message for the person restoring; returns the backup's manifest."""
+    import shutil
     data_dir = os.path.dirname(os.path.abspath(DATABASE))
     uploads = app.config['UPLOAD_FOLDER']
-    work = tempfile.mkdtemp(prefix='.restore-', dir=data_dir)   # same disk as the data, so moves are renames
+    if not zipfile.is_zipfile(zpath): raise RestoreError('This file is not a Garage Logbook backup.')
+    with zipfile.ZipFile(zpath) as z:
+        entries = [i for i in z.infolist() if not i.is_dir()]
+        names = {i.filename for i in entries}
+        if 'manifest.json' not in names or BACKUP_DB_NAME not in names:
+            raise RestoreError('This file is not a Garage Logbook backup.')
+        try: manifest = json.loads(z.read('manifest.json'))
+        except ValueError: manifest = {}
+        if not isinstance(manifest, dict) or manifest.get('app') != 'garage-logbook':
+            raise RestoreError('This file is not a Garage Logbook backup.')
+        theirs, ours = version_tuple(manifest.get('version')), version_tuple(APP_VERSION)
+        if theirs is None: raise RestoreError('This backup does not say which version made it.')
+        if theirs > ours:
+            raise RestoreError(f"This backup is from Garage Logbook {manifest['version']}, newer than this install ({APP_VERSION}). Update this install first.")
+        bad = [n for n in names if n not in ('manifest.json', BACKUP_DB_NAME) and not BACKUP_FILE_RE.match(n)]
+        if bad: raise RestoreError(f'This backup holds a file it should not: {bad[0][:120]}')
+        if sum(i.file_size for i in entries) > shutil.disk_usage(data_dir).free - 64 * 1024 ** 2:
+            raise RestoreError('There is not enough free disk space to restore this backup.')
+        # Unpack beside the live data. Names were checked above, and each is
+        # written to a path built here, never to the name in the zip.
+        db_new = os.path.join(work, BACKUP_DB_NAME)
+        with z.open(BACKUP_DB_NAME) as src, open(db_new, 'wb') as dst: shutil.copyfileobj(src, dst)
+        err = check_backup_db(db_new)
+        if err: raise RestoreError(err)
+        staged = os.path.join(work, 'uploads')
+        for sub in BACKUP_FOLDERS: os.makedirs(os.path.join(staged, sub))
+        for i in entries:
+            m = BACKUP_FILE_RE.match(i.filename)
+            if not m: continue
+            with z.open(i) as src, open(os.path.join(staged, m.group(1), m.group(2)), 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+    os.remove(zpath)
+    # The database: copied page by page into the live one under SQLite's
+    # locks, so requests in other workers wait rather than read a torn file.
+    src, live = sqlite3.connect(db_new), get_db()
     try:
-        zpath = os.path.join(work, 'backup.zip'); f.save(zpath)
-        if not zipfile.is_zipfile(zpath): return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
-        with zipfile.ZipFile(zpath) as z:
-            entries = [i for i in z.infolist() if not i.is_dir()]
-            names = {i.filename for i in entries}
-            if 'manifest.json' not in names or BACKUP_DB_NAME not in names:
-                return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
-            try: manifest = json.loads(z.read('manifest.json'))
-            except ValueError: manifest = {}
-            if not isinstance(manifest, dict) or manifest.get('app') != 'garage-logbook':
-                return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
-            theirs, ours = version_tuple(manifest.get('version')), version_tuple(APP_VERSION)
-            if theirs is None: return jsonify({'error': 'This backup does not say which version made it.'}), 400
-            if theirs > ours:
-                return jsonify({'error': f"This backup is from Garage Logbook {manifest['version']}, newer than this install ({APP_VERSION}). Update this install first."}), 400
-            bad = [n for n in names if n not in ('manifest.json', BACKUP_DB_NAME) and not BACKUP_FILE_RE.match(n)]
-            if bad: return jsonify({'error': f'This backup holds a file it should not: {bad[0][:120]}'}), 400
-            need = sum(i.file_size for i in entries)
-            if need > shutil.disk_usage(data_dir).free - 64 * 1024 ** 2:
-                return jsonify({'error': 'There is not enough free disk space to restore this backup.'}), 400
-            # Unpack beside the live data. Names were checked above, and each is
-            # written to a path built here, never to the name in the zip.
-            db_new = os.path.join(work, BACKUP_DB_NAME)
-            with z.open(BACKUP_DB_NAME) as src, open(db_new, 'wb') as dst: shutil.copyfileobj(src, dst)
-            err = check_backup_db(db_new)
-            if err: return jsonify({'error': err}), 400
-            staged = os.path.join(work, 'uploads')
-            for sub in BACKUP_FOLDERS: os.makedirs(os.path.join(staged, sub))
-            for i in entries:
-                m = BACKUP_FILE_RE.match(i.filename)
-                if not m: continue
-                with z.open(i) as src, open(os.path.join(staged, m.group(1), m.group(2)), 'wb') as dst:
-                    shutil.copyfileobj(src, dst)
-        os.remove(zpath)
-        # The database: copied page by page into the live one under SQLite's
-        # locks, so requests in other workers wait rather than read a torn file.
-        src, live = sqlite3.connect(db_new), get_db()
-        try:
-            src.backup(live)
-        except sqlite3.Error as e:
-            return jsonify({'error': f'The database could not be restored: {e}'}), 500
-        finally:
-            src.close()
-        live.close()
-        # Photos and receipts: each folder swapped for the backup's.
-        for sub in BACKUP_FOLDERS:
-            cur, old = os.path.join(uploads, sub), os.path.join(work, f'old-{sub}')
-            os.makedirs(uploads, exist_ok=True)
-            if os.path.exists(cur): os.replace(cur, old)
-            os.replace(os.path.join(staged, sub), cur)
-        init_db()   # brings a backup from an older version up to this one
-        conn = get_db()
-        conn.execute("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('session_epoch',?)", (secrets.token_hex(16),))
-        conn.commit(); conn.close()
-        session.clear()
-        return jsonify({'success': True, 'version': manifest['version'], 'created': manifest.get('created')})
+        src.backup(live)
+    except sqlite3.Error as e:
+        raise RestoreError(f'The database could not be restored: {e}')
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        src.close(); live.close()
+    # Photos and receipts: each folder swapped for the backup's.
+    os.makedirs(uploads, exist_ok=True)
+    for sub in BACKUP_FOLDERS:
+        cur, old = os.path.join(uploads, sub), os.path.join(work, f'old-{sub}')
+        if os.path.exists(cur): os.replace(cur, old)
+        os.replace(os.path.join(staged, sub), cur)
+    init_db()   # brings a backup from an older version up to this one
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('session_epoch',?)", (secrets.token_hex(16),))
+    conn.commit(); conn.close()
+    return manifest
+
+def run_restore(rid):
+    """In a background thread: one restore at a time, its result left in the
+    status file for the page to read."""
+    import shutil
+    work, _ = restore_paths(rid)
+    lock = open(os.path.join(os.path.dirname(work), '.restore.lock'), 'w')
+    try:
+        if fcntl is not None:
+            try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                restore_status(rid, state='failed', error='Another restore is running. Try again when it has finished.'); return
+        try:
+            manifest = restore_from_zip(os.path.join(work, 'backup.zip'), work)
+            restore_status(rid, state='done', version=manifest.get('version'), created=manifest.get('created'))
+        except RestoreError as e:
+            restore_status(rid, state='failed', error=str(e))
+        except Exception as e:
+            print(f'Restore {rid} failed: {e!r}')
+            restore_status(rid, state='failed', error='The backup could not be restored. The server log has the details.')
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+    finally:
+        lock.close()
+
+@app.route('/api/backup/restore', methods=['POST'])
+@role_required('admin')
+def restore_start():
+    import shutil
+    d = request.get_json(silent=True) or {}
+    try: size = int(d.get('size'))
+    except (TypeError, ValueError): return jsonify({'error': 'The backup file size is missing.'}), 400
+    if size <= 0: return jsonify({'error': 'The backup file is empty.'}), 400
+    if size > BACKUP_MAX: return jsonify({'error': 'This backup is too large to restore.'}), 400
+    restore_cleanup()
+    data_dir = os.path.dirname(os.path.abspath(DATABASE))
+    if 2 * size > shutil.disk_usage(data_dir).free - 64 * 1024 ** 2:   # the zip, then what it unpacks to
+        return jsonify({'error': 'There is not enough free disk space to restore this backup.'}), 400
+    rid = secrets.token_hex(16)
+    work, _ = restore_paths(rid)
+    os.makedirs(work)
+    open(os.path.join(work, 'backup.zip'), 'wb').close()
+    restore_status(rid, state='uploading', size=size)
+    return jsonify({'id': rid, 'chunk_size': RESTORE_CHUNK}), 201
+
+@app.route('/api/backup/restore/<rid>/chunk', methods=['PUT'])
+@role_required('admin')
+def restore_chunk(rid):
+    import shutil
+    if not RESTORE_ID_RE.match(rid): return jsonify({'error': 'Not found'}), 404
+    st = restore_read_status(rid)
+    if not st or st.get('state') != 'uploading': return jsonify({'error': 'This upload is no longer open. Start the restore again.'}), 409
+    request.max_content_length = RESTORE_CHUNK + 1024 * 1024
+    try: offset = int(request.args.get('offset', ''))
+    except ValueError: return jsonify({'error': 'The piece has no offset.'}), 400
+    zpath = os.path.join(restore_paths(rid)[0], 'backup.zip')
+    have = os.path.getsize(zpath)
+    length = request.content_length or 0
+    if offset + length == have and length: return jsonify({'received': have})   # a retry of a piece already written
+    if offset != have: return jsonify({'error': 'A piece arrived out of order.', 'received': have}), 409
+    if have + length > st['size']: return jsonify({'error': 'The upload is larger than the backup file.'}), 400
+    with open(zpath, 'ab') as fh: shutil.copyfileobj(request.stream, fh, 1024 * 1024)
+    received = os.path.getsize(zpath)
+    if received != have + length:   # cut short: drop the partial piece so it can be sent again
+        with open(zpath, 'ab') as fh: fh.truncate(have)
+        return jsonify({'error': 'The piece was cut short.', 'received': have}), 400
+    return jsonify({'received': received})
+
+@app.route('/api/backup/restore/<rid>/finish', methods=['POST'])
+@role_required('admin')
+def restore_finish(rid):
+    import threading
+    if not RESTORE_ID_RE.match(rid): return jsonify({'error': 'Not found'}), 404
+    st = restore_read_status(rid)
+    if not st or st.get('state') != 'uploading': return jsonify({'error': 'This upload is no longer open. Start the restore again.'}), 409
+    received = os.path.getsize(os.path.join(restore_paths(rid)[0], 'backup.zip'))
+    if received != st['size']: return jsonify({'error': 'The upload is not complete.', 'received': received}), 409
+    restore_status(rid, state='restoring')
+    threading.Thread(target=run_restore, args=(rid,), name=f'restore-{rid[:8]}').start()
+    return jsonify({'state': 'restoring'}), 202
+
+@app.route('/api/backup/restore/<rid>')
+def restore_progress(rid):
+    """No sign-in needed: a finished restore has signed everyone out. The
+    upload id, known only to the page that started it, is the key."""
+    st = restore_read_status(rid) if RESTORE_ID_RE.match(rid) else None
+    if not st: return jsonify({'error': 'Not found'}), 404
+    return jsonify({k: st.get(k) for k in ('state', 'error', 'version', 'created') if st.get(k) is not None})
 
 # ── CSV Import (admin + permitted editors) ─────────────
 @app.route('/api/import/preview', methods=['POST'])

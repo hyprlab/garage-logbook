@@ -888,22 +888,56 @@ function onRestoreFile(input){
     $('restoreLabel').innerHTML=`${ic('file')}<span><b>${esc(f.name)}</b><small>${formatBytes(f.size)}</small></span>`;
     $('restoreBtn').disabled=false;
 }
-// XHR rather than fetch, for upload progress on a large backup.
-function restoreBackup(){
+// The backup goes up in pieces the server names the size of (90 MB), so a
+// proxy's limit on one request, like Cloudflare's 100 MB, never applies. Each
+// piece is retried a few times; then the restore runs on the server and the
+// page asks how it is going until it is done.
+function sendPiece(id,offset,blob,onProgress){
+    return new Promise((resolve,reject)=>{
+        const x=new XMLHttpRequest();x.open('PUT',`/api/backup/restore/${id}/chunk?offset=${offset}`);
+        x.setRequestHeader('Content-Type','application/octet-stream');
+        x.upload.onprogress=e=>{if(e.lengthComputable)onProgress(e.loaded)};
+        x.onload=()=>{let d={};try{d=JSON.parse(x.responseText)}catch(e){}
+            if(x.status===200)resolve(d.received);
+            else{const err=new Error(d.error||(x.status===413?'The server refused a piece as too large.':`The upload failed (${x.status}).`));err.status=x.status;err.received=d.received;reject(err)}};
+        x.onerror=()=>reject(Object.assign(new Error('The upload stopped. Check the connection and try again.'),{status:0}));
+        x.send(blob);
+    });
+}
+async function restoreBackup(){
     const f=$('restoreFile').files[0];if(!f)return;
     if(!confirm('Restore this backup?\n\nEverything in this install is replaced by what is in the backup, and everyone is signed out. This cannot be undone. Download a backup of this install first if you may want it back.'))return;
-    const b=$('restoreBtn'),fd=new FormData();fd.append('backup',f);
-    const done=msg=>{toast(msg,'error');b.disabled=false;b.textContent='Restore backup'};
+    const b=$('restoreBtn'),fail=msg=>{toast(msg,'error');b.disabled=false;b.textContent='Restore backup'};
     b.disabled=true;b.textContent='Uploading 0%';
-    const x=new XMLHttpRequest();x.open('POST','/api/backup/restore');
-    x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.floor(e.loaded/e.total*100);b.textContent=p<100?`Uploading ${p}%`:'Restoring…'}};
-    x.onload=()=>{
-        let d={};try{d=JSON.parse(x.responseText)}catch(e){}
-        if(x.status===200){toast('Backup restored. Sign in with an account from the backup.');setTimeout(()=>{window.location.href='/login'},1800)}
-        else done(d.error||(x.status===413?'This backup is too large to restore.':'The backup could not be restored.'));
-    };
-    x.onerror=()=>done('The upload stopped. Check the connection and try again.');
-    x.send(fd);
+    try{
+        const r=await api('/api/backup/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({size:f.size})});
+        if(!r.ok)throw new Error(await errorOf(r,'The restore could not start.'));
+        const{id,chunk_size:size}=await r.json();
+        const show=done=>{b.textContent=`Uploading ${Math.floor(done/f.size*100)}%`};
+        let offset=0;
+        while(offset<f.size){
+            const end=Math.min(offset+size,f.size);
+            for(let attempt=1;;attempt++){
+                try{offset=await sendPiece(id,offset,f.slice(offset,end),loaded=>show(offset+loaded));break}
+                catch(err){
+                    if(err.status===409&&typeof err.received==='number'){offset=err.received;break}   // the server has more or less than we thought: carry on from there
+                    if(attempt>=4||(err.status>=400&&err.status<500))throw err;
+                    b.textContent=`Retrying (${attempt})`;await new Promise(res=>setTimeout(res,attempt*2000));
+                }
+            }
+            show(offset);
+        }
+        b.textContent='Restoring…';
+        const fin=await api(`/api/backup/restore/${id}/finish`,{method:'POST'});
+        if(!fin.ok)throw new Error(await errorOf(fin,'The restore could not start.'));
+        // Plain fetch from here: the restore signs this session out when it finishes.
+        for(;;){
+            await new Promise(res=>setTimeout(res,1500));
+            let st;try{st=await(await fetch(`/api/backup/restore/${id}`)).json()}catch(e){continue}
+            if(st.state==='done'){toast('Backup restored. Sign in with an account from the backup.');setTimeout(()=>{window.location.href='/login'},1800);return}
+            if(st.state==='failed')throw new Error(st.error||'The backup could not be restored.');
+        }
+    }catch(err){fail(err.message)}
 }
 
 // ————— Users —————
