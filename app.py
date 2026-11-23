@@ -16,14 +16,14 @@
 
 import os, uuid, sqlite3, hashlib, secrets, csv, io, json, re, calendar, unicodedata, zipfile
 from urllib.parse import urlsplit
-from datetime import date
+from datetime import date, datetime, timezone
 try:
     import fcntl
 except ImportError:  # non-POSIX; single-process only
     fcntl = None
 from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
-                   redirect, url_for, session, g, Response, send_from_directory,
+                   redirect, url_for, session, g, Response, send_from_directory, send_file,
                    has_request_context)
 
 APP_VERSION = '1.2.0'
@@ -560,6 +560,8 @@ def load_user():
     uid = session.get('user_id')
     if uid:
         conn = get_db()
+        if session.get('epoch') != session_epoch(conn):   # signed in before a restore
+            conn.close(); session.clear(); return
         u = conn.execute('SELECT id,username,display_name,role,permissions,must_change_password FROM users WHERE id=?',(uid,)).fetchone()
         conn.close()
         if u: g.user = dict(u)
@@ -634,6 +636,7 @@ def api_login():
     conn.close()
     if not user or not verify_password(p, user['password']): return jsonify({'error':'Invalid credentials'}), 401
     session.clear(); session['user_id']=user['id']; session.permanent=True
+    ep = get_db(); session['epoch'] = session_epoch(ep); ep.close()
     mcp = 0
     try: mcp = user['must_change_password']
     except: pass
@@ -1487,6 +1490,165 @@ def export_record_pdfs(cid):
             used.add(name)
             z.writestr(name, pdf_render(car, [r], fonts))
     return download(buf.getvalue(), 'application/zip', pdf_slug(car['year'], car['make'], car['model'], 'service-records') + '.zip')
+
+# ── Backup and restore (admins) ────────────────────────
+# A backup is one zip of the whole install: the database and every uploaded
+# photo and receipt, so an install can move to another machine. Restoring one
+# replaces everything here and signs everyone out.
+BACKUP_DB_NAME = 'garage_logbook.db'
+BACKUP_FOLDERS = ('cars', 'maintenance')
+BACKUP_MAX = 8 * 1024 ** 3          # the largest backup a restore accepts
+BACKUP_FILE_RE = re.compile(r'^uploads/(cars|maintenance)/([A-Za-z0-9][A-Za-z0-9._-]{0,200})$')
+
+def version_tuple(v):
+    m = re.match(r'^(\d+)\.(\d+)\.(\d+)', str(v or ''))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+def backup_files():
+    """(subfolder, name, path) of every uploaded file."""
+    out = []
+    for sub in BACKUP_FOLDERS:
+        folder = os.path.join(app.config['UPLOAD_FOLDER'], sub)
+        if not os.path.isdir(folder): continue
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and not os.path.islink(path) and BACKUP_FILE_RE.match(f'uploads/{sub}/{name}'):
+                out.append((sub, name, path))
+    return out
+
+def session_epoch(conn):
+    """Changes at every restore, which signs out every session made before it."""
+    row = conn.execute("SELECT value FROM app_meta WHERE key='session_epoch'").fetchone()
+    return row['value'] if row else None
+
+@app.route('/api/backup/summary')
+@role_required('admin')
+def backup_summary():
+    conn = get_db()
+    counts = {k: conn.execute(f'SELECT COUNT(*) AS c FROM {t}').fetchone()['c']
+              for k, t in (('users', 'users'), ('vehicles', 'cars'), ('records', 'maintenance'), ('reminders', 'service_reminders'))}
+    conn.close()
+    files = backup_files()
+    size = os.path.getsize(DATABASE) + sum(os.path.getsize(p) for _, _, p in files)
+    return jsonify({**counts, 'files': len(files), 'bytes': size, 'version': APP_VERSION})
+
+@app.route('/api/backup')
+@role_required('admin')
+def download_backup():
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(prefix='garage-logbook-backup-', suffix='.zip', delete=False)
+    tmp.close()
+    db_tmp = tmp.name + '.db'
+    try:
+        # A consistent copy of the live database, taken with SQLite's backup
+        # API so writes in progress cannot tear it, then made self-contained.
+        live, copy = get_db(), sqlite3.connect(db_tmp)
+        live.backup(copy)
+        copy.execute('PRAGMA journal_mode=DELETE'); copy.close(); live.close()
+        manifest = {'app': 'garage-logbook', 'version': APP_VERSION,
+                    'created': datetime.now(timezone.utc).isoformat(timespec='seconds')}
+        with zipfile.ZipFile(tmp.name, 'w') as z:
+            z.writestr('manifest.json', json.dumps(manifest, indent=2), zipfile.ZIP_DEFLATED)
+            z.write(db_tmp, BACKUP_DB_NAME, zipfile.ZIP_DEFLATED)
+            for sub, name, path in backup_files():   # photos and PDFs are compressed already
+                z.write(path, f'uploads/{sub}/{name}', zipfile.ZIP_STORED)
+    except Exception:
+        for p in (tmp.name, db_tmp):
+            if os.path.exists(p): os.remove(p)
+        raise
+    finally:
+        if os.path.exists(db_tmp): os.remove(db_tmp)
+    # Opened, then unlinked: the open file stays readable until the download
+    # ends, and its space is freed then, however the response is sent.
+    fh = open(tmp.name, 'rb'); os.remove(tmp.name)
+    return send_file(fh, mimetype='application/zip', as_attachment=True,
+                     download_name=f'garage-logbook-backup-{date.today().isoformat()}.zip')
+
+def check_backup_db(path):
+    """An error message, or None when the file is a Garage Logbook database
+    that is intact and has an admin to sign in with."""
+    try:
+        c = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            if c.execute('PRAGMA quick_check').fetchone()[0] != 'ok': return 'The database in this backup is damaged.'
+            tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {'users', 'cars', 'maintenance'} <= tables: return 'This backup does not hold a Garage Logbook database.'
+            if not c.execute("SELECT 1 FROM users WHERE role='admin'").fetchone(): return 'This backup has no admin user to sign in with.'
+        finally:
+            c.close()
+    except sqlite3.DatabaseError:
+        return 'The database in this backup could not be read.'
+    return None
+
+@app.route('/api/backup/restore', methods=['POST'])
+@role_required('admin')
+def restore_backup():
+    import tempfile, shutil
+    request.max_content_length = BACKUP_MAX   # set before the upload is read
+    f = request.files.get('backup')
+    if not f or not f.filename: return jsonify({'error': 'Choose a backup file.'}), 400
+    data_dir = os.path.dirname(os.path.abspath(DATABASE))
+    uploads = app.config['UPLOAD_FOLDER']
+    work = tempfile.mkdtemp(prefix='.restore-', dir=data_dir)   # same disk as the data, so moves are renames
+    try:
+        zpath = os.path.join(work, 'backup.zip'); f.save(zpath)
+        if not zipfile.is_zipfile(zpath): return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
+        with zipfile.ZipFile(zpath) as z:
+            entries = [i for i in z.infolist() if not i.is_dir()]
+            names = {i.filename for i in entries}
+            if 'manifest.json' not in names or BACKUP_DB_NAME not in names:
+                return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
+            try: manifest = json.loads(z.read('manifest.json'))
+            except ValueError: manifest = {}
+            if not isinstance(manifest, dict) or manifest.get('app') != 'garage-logbook':
+                return jsonify({'error': 'This file is not a Garage Logbook backup.'}), 400
+            theirs, ours = version_tuple(manifest.get('version')), version_tuple(APP_VERSION)
+            if theirs is None: return jsonify({'error': 'This backup does not say which version made it.'}), 400
+            if theirs > ours:
+                return jsonify({'error': f"This backup is from Garage Logbook {manifest['version']}, newer than this install ({APP_VERSION}). Update this install first."}), 400
+            bad = [n for n in names if n not in ('manifest.json', BACKUP_DB_NAME) and not BACKUP_FILE_RE.match(n)]
+            if bad: return jsonify({'error': f'This backup holds a file it should not: {bad[0][:120]}'}), 400
+            need = sum(i.file_size for i in entries)
+            if need > shutil.disk_usage(data_dir).free - 64 * 1024 ** 2:
+                return jsonify({'error': 'There is not enough free disk space to restore this backup.'}), 400
+            # Unpack beside the live data. Names were checked above, and each is
+            # written to a path built here, never to the name in the zip.
+            db_new = os.path.join(work, BACKUP_DB_NAME)
+            with z.open(BACKUP_DB_NAME) as src, open(db_new, 'wb') as dst: shutil.copyfileobj(src, dst)
+            err = check_backup_db(db_new)
+            if err: return jsonify({'error': err}), 400
+            staged = os.path.join(work, 'uploads')
+            for sub in BACKUP_FOLDERS: os.makedirs(os.path.join(staged, sub))
+            for i in entries:
+                m = BACKUP_FILE_RE.match(i.filename)
+                if not m: continue
+                with z.open(i) as src, open(os.path.join(staged, m.group(1), m.group(2)), 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+        os.remove(zpath)
+        # The database: copied page by page into the live one under SQLite's
+        # locks, so requests in other workers wait rather than read a torn file.
+        src, live = sqlite3.connect(db_new), get_db()
+        try:
+            src.backup(live)
+        except sqlite3.Error as e:
+            return jsonify({'error': f'The database could not be restored: {e}'}), 500
+        finally:
+            src.close()
+        live.close()
+        # Photos and receipts: each folder swapped for the backup's.
+        for sub in BACKUP_FOLDERS:
+            cur, old = os.path.join(uploads, sub), os.path.join(work, f'old-{sub}')
+            os.makedirs(uploads, exist_ok=True)
+            if os.path.exists(cur): os.replace(cur, old)
+            os.replace(os.path.join(staged, sub), cur)
+        init_db()   # brings a backup from an older version up to this one
+        conn = get_db()
+        conn.execute("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('session_epoch',?)", (secrets.token_hex(16),))
+        conn.commit(); conn.close()
+        session.clear()
+        return jsonify({'success': True, 'version': manifest['version'], 'created': manifest.get('created')})
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 # ── CSV Import (admin + permitted editors) ─────────────
 @app.route('/api/import/preview', methods=['POST'])

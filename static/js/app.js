@@ -861,8 +861,50 @@ function switchSettingsTab(tab,importCarId){
     if(tab==='vendors')loadVendorsSettings();
     if(tab==='import'){importLoadCars(importCarId);importGoToStep(1)}
     if(tab==='about')markCurrentRelease();
+    if(tab==='backup')loadBackupSummary();
 }
 function settingsBack(){$('settingsModal').querySelector('.settings-modal').classList.remove('is-showing-pane')}
+
+// ————— Backup and restore (admins) —————
+function formatBytes(b){const u=['bytes','KB','MB','GB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return`${i?b.toFixed(b<10?1:0):b} ${u[i]}`}
+async function loadBackupSummary(){
+    resetRestore();
+    const el=$('backupSummary');el.textContent='';
+    try{const s=await getJSON('/api/backup/summary');
+        el.textContent=`${plural(s.users,'user')}, ${plural(s.vehicles,'vehicle')}, ${plural(s.records,'record')}, ${plural(s.reminders,'reminder')} and ${plural(s.files,'photo or receipt','photos and receipts')}, about ${formatBytes(s.bytes)} before compression.`}
+    catch(e){el.textContent=''}
+}
+// A plain download, so the browser saves a large backup straight to disk.
+function downloadBackup(){
+    toast('Preparing the backup. It downloads when it is ready.');
+    const a=document.createElement('a');a.href='/api/backup';a.download='';document.body.appendChild(a);a.click();a.remove();
+}
+function resetRestore(){
+    const i=$('restoreFile');i.value='';$('restoreBtn').disabled=true;$('restoreBtn').textContent='Restore backup';
+    $('restoreLabel').innerHTML=`${ic('upload')}<span><b>Choose a backup file</b><small>The .zip that Download backup saves</small></span>`;
+}
+function onRestoreFile(input){
+    const f=input.files&&input.files[0];if(!f){resetRestore();return}
+    $('restoreLabel').innerHTML=`${ic('file')}<span><b>${esc(f.name)}</b><small>${formatBytes(f.size)}</small></span>`;
+    $('restoreBtn').disabled=false;
+}
+// XHR rather than fetch, for upload progress on a large backup.
+function restoreBackup(){
+    const f=$('restoreFile').files[0];if(!f)return;
+    if(!confirm('Restore this backup?\n\nEverything in this install is replaced by what is in the backup, and everyone is signed out. This cannot be undone. Download a backup of this install first if you may want it back.'))return;
+    const b=$('restoreBtn'),fd=new FormData();fd.append('backup',f);
+    const done=msg=>{toast(msg,'error');b.disabled=false;b.textContent='Restore backup'};
+    b.disabled=true;b.textContent='Uploading 0%';
+    const x=new XMLHttpRequest();x.open('POST','/api/backup/restore');
+    x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.floor(e.loaded/e.total*100);b.textContent=p<100?`Uploading ${p}%`:'Restoring…'}};
+    x.onload=()=>{
+        let d={};try{d=JSON.parse(x.responseText)}catch(e){}
+        if(x.status===200){toast('Backup restored. Sign in with an account from the backup.');setTimeout(()=>{window.location.href='/login'},1800)}
+        else done(d.error||(x.status===413?'This backup is too large to restore.':'The backup could not be restored.'));
+    };
+    x.onerror=()=>done('The upload stopped. Check the connection and try again.');
+    x.send(fd);
+}
 
 // ————— Users —————
 async function loadUsers(){
